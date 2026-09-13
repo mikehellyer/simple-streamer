@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import urlparse
 
-from PySide6.QtCore import QUrl, Qt, QObject, QThread, Signal
+from PySide6.QtCore import QUrl, Qt, QObject, QThread, Signal, QTimer
 from PySide6.QtGui import QKeyEvent, QIcon, QPixmap
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtWidgets import (
@@ -22,7 +22,13 @@ from simple_streamer.core.podcasts import latest_episode
 from simple_streamer.core.pls_resolver import resolve_pls
 from simple_streamer.core.icy_metadata import IcyMetadataListener
 from simple_streamer.core.updater import check_for_update, API_TIMEOUT_SECONDS
+from simple_streamer.core.self_update import (
+    find_asset_for_this_platform,
+    download_asset,
+    launch_installer,
+)
 from simple_streamer.gui.preset_deck import PresetDeckWidget
+from simple_streamer.gui.update_banner import UpdateBanner
 
 UPDATE_OWNER = "mikehellyer"
 UPDATE_REPO = "simple-streamer"
@@ -93,11 +99,15 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(wordmark)
         header_layout.addStretch(1)
 
+        self._update_banner = UpdateBanner()
+        self._update_banner.update_clicked.connect(self._start_update)
+
         central = QWidget()
         central_layout = QVBoxLayout(central)
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
         central_layout.addWidget(header)
+        central_layout.addWidget(self._update_banner)
         central_layout.addWidget(self._tabs)
         self.setCentralWidget(central)
 
@@ -109,6 +119,7 @@ class MainWindow(QMainWindow):
         self._icy_listener: IcyMetadataListener | None = None
         self._icy_bridge = _IcySignalBridge()
         self._icy_bridge.title_changed.connect(self._on_icy_title)
+        self._pending_update = None
 
         self._check_for_updates()
 
@@ -268,9 +279,37 @@ class MainWindow(QMainWindow):
 
     def _on_update_checked(self, info) -> None:
         if info:
-            self.statusBar().showMessage(
-                f"Update available: {info.version} — see {info.url}", 10_000
+            self._pending_update = info
+            self._update_banner.announce(info.version)
+
+    def _start_update(self) -> None:
+        if self._pending_update is None:
+            return
+        asset_url = find_asset_for_this_platform(self._pending_update.assets)
+        if asset_url is None:
+            self._update_banner.set_status(
+                f"No installer for this platform — see {self._pending_update.url}"
             )
+            return
+
+        self._update_banner.set_busy(True, "Downloading…")
+        self._run_in_background(
+            lambda: download_asset(asset_url),
+            self._on_update_downloaded,
+        )
+
+    def _on_update_downloaded(self, path) -> None:
+        if path is None:
+            self._update_banner.set_status("Couldn't download the update — try again")
+            self._update_banner.set_busy(False)
+            return
+
+        if launch_installer(path):
+            self._update_banner.set_status("Installer launched — closing to finish…")
+            QTimer.singleShot(1500, self.close)
+        else:
+            self._update_banner.set_status(f"Downloaded to {path} — open it manually")
+            self._update_banner.set_busy(False)
 
     def closeEvent(self, event) -> None:
         self._stop_icy_listener()

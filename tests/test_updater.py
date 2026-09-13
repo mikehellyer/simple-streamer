@@ -46,3 +46,30 @@ def test_check_for_update_returns_info_when_newer():
     assert info is not None
     assert info.version == "v0.2.0"
     assert info.url == "https://example.com/rel"
+
+
+def test_check_for_update_captures_release_assets():
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return (
+                b'{"tag_name": "v0.2.0", "html_url": "https://example.com/rel", '
+                b'"assets": ['
+                b'{"name": "Simple-Streamer-0.2.0-macOS.dmg", "browser_download_url": "https://dl/mac.dmg"},'
+                b'{"name": "simple-streamer_0.2.0_amd64.deb", "browser_download_url": "https://dl/lin.deb"}'
+                b"]}"
+            )
+
+    with patch("urllib.request.urlopen", return_value=_Response()):
+        info = check_for_update("0.1.0", "owner", "repo")
+
+    assert info is not None
+    assert info.assets == [
+        ("Simple-Streamer-0.2.0-macOS.dmg", "https://dl/mac.dmg"),
+        ("simple-streamer_0.2.0_amd64.deb", "https://dl/lin.deb"),
+    ]

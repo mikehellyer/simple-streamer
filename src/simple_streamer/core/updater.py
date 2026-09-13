@@ -18,6 +18,7 @@ class UpdateInfo:
     version: str
     url: str
     notes: str
+    assets: list[tuple[str, str]]  # (filename, browser_download_url)
 
 
 def _parse_version(tag: str) -> tuple[int, ...]:
@@ -51,8 +52,14 @@ def check_for_update(current_version: str, owner: str, repo: str) -> Optional[Up
     if not tag or not is_newer(tag, current_version):
         return None
 
+    assets = [
+        (asset["name"], asset["browser_download_url"])
+        for asset in payload.get("assets", [])
+        if "name" in asset and "browser_download_url" in asset
+    ]
     return UpdateInfo(
         version=tag,
         url=payload.get("html_url", ""),
         notes=payload.get("body", ""),
+        assets=assets,
     )
