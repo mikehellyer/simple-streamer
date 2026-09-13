@@ -15,23 +15,10 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 
-GRID_COLUMNS = 5
-BUTTON_LABEL_MAX_CHARS = 30  # fits the longest built-in preset name at the default window width
-
-
-def _shorten(label: str) -> str:
-    """Fit a preset's name on a button of the fixed grid size.
-
-    All buttons are forced to the same width (see the grid-stretch setup in
-    PresetDeckWidget), so a long name is elided rather than allowed to
-    widen its own column — the full name still shows in the F1 legend and
-    as this button's tooltip.
-    """
-    if len(label) <= BUTTON_LABEL_MAX_CHARS:
-        return label
-    return label[: BUTTON_LABEL_MAX_CHARS - 1].rstrip() + "…"
-
 from simple_streamer.core.presets import PresetStore
+from simple_streamer.core.text import shorten, PRESET_BUTTON_LABEL_MAX_CHARS
+
+GRID_COLUMNS = 5
 
 
 class LegendOverlay(QFrame):
@@ -150,7 +137,7 @@ class PresetDeckWidget(QWidget):
         for slot in self._store.deck(self._category):
             button = self._buttons[slot.number]
             if slot.label:
-                button.setText(f"{slot.number}\n{_shorten(slot.label)}")
+                button.setText(f"{slot.number}\n{shorten(slot.label, PRESET_BUTTON_LABEL_MAX_CHARS)}")
                 button.setToolTip(slot.label)
             else:
                 button.setText(str(slot.number))
