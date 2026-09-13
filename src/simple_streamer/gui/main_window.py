@@ -37,6 +37,7 @@ class MainWindow(QMainWindow):
 
         self._store = PresetStore()
         self._background_threads: list[QThread] = []
+        self._background_workers: list[_CallableWorker] = []
 
         self._audio_output = QAudioOutput()
         self._player = QMediaPlayer()
@@ -70,11 +71,21 @@ class MainWindow(QMainWindow):
         thread.started.connect(worker.run)
         worker.finished.connect(on_finished)
         worker.finished.connect(thread.quit)
-        thread.finished.connect(lambda: self._background_threads.remove(thread))
-        # Keep the worker alive for the thread's lifetime.
+
+        def _cleanup():
+            self._background_threads.remove(thread)
+            self._background_workers.remove(worker)
+
+        thread.finished.connect(_cleanup)
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
+        # Both must be kept referenced from self — nothing else holds a
+        # Python reference to worker/thread while the thread runs, and
+        # Qt's C++-side connections alone don't stop them being garbage
+        # collected mid-flight (the thread then hangs forever waiting on
+        # a slot bound to an object that no longer exists).
         self._background_threads.append(thread)
+        self._background_workers.append(worker)
         thread.start()
 
     def _play_slot(self, category: str, number: int) -> None:
