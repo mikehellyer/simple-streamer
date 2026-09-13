@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+from pathlib import Path
 from urllib.parse import urlparse
 
 from PySide6.QtCore import QUrl, Qt, QObject, QThread, Signal
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtGui import QKeyEvent, QIcon, QPixmap
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
-from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar
+from PySide6.QtWidgets import (
+    QMainWindow,
+    QTabWidget,
+    QStatusBar,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+)
 
 from simple_streamer import __version__
 from simple_streamer.core.presets import PresetStore, PresetSlot
@@ -18,6 +27,7 @@ from simple_streamer.gui.preset_deck import PresetDeckWidget
 UPDATE_OWNER = "mikehellyer"
 UPDATE_REPO = "simple-streamer"
 BACKGROUND_JOIN_TIMEOUT_MS = (API_TIMEOUT_SECONDS + 1) * 1000
+ICON_PATH = Path(__file__).parent / "resources" / "icon.png"
 
 
 class _CallableWorker(QObject):
@@ -46,6 +56,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"Simple-Streamer v{__version__}")
+        self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.resize(600, 580)
 
         self._store = PresetStore()
@@ -66,7 +77,29 @@ class MainWindow(QMainWindow):
             deck.stop_requested.connect(self._stop_playback)
             self._tabs.addTab(deck, title)
             self._decks[category] = deck
-        self.setCentralWidget(self._tabs)
+
+        header = QWidget()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(12, 10, 12, 4)
+        logo = QLabel()
+        logo.setPixmap(
+            QPixmap(str(ICON_PATH)).scaled(
+                32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+        )
+        header_layout.addWidget(logo)
+        wordmark = QLabel("Simple-Streamer")
+        wordmark.setStyleSheet("font-size: 18px; font-weight: 700;")
+        header_layout.addWidget(wordmark)
+        header_layout.addStretch(1)
+
+        central = QWidget()
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        central_layout.addWidget(header)
+        central_layout.addWidget(self._tabs)
+        self.setCentralWidget(central)
 
         self.setStatusBar(QStatusBar())
 

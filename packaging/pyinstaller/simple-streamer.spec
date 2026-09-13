@@ -27,7 +27,9 @@ a = Analysis(
     [str(src / "simple_streamer" / "app.py")],
     pathex=[str(src)],
     binaries=[],
-    datas=[],
+    datas=[
+        (str(src / "simple_streamer" / "gui" / "resources" / "icon.png"), "simple_streamer/gui/resources"),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

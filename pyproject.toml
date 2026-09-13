@@ -17,3 +17,6 @@ simple-streamer = "simple_streamer.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"simple_streamer.gui" = ["resources/*.png"]

@@ -15,11 +15,12 @@ from PIL import Image, ImageDraw
 OUT_DIR = Path(__file__).parent
 SIZE = 1024
 
-# Matches the teal/amber "tuning dial" palette from the UI concept review.
+# "Headphone World" — chosen from the icon concept review as the mark that
+# best reads as radio + international streaming (vs. the original plain
+# tuning-dial icon).
 TEAL = (37, 126, 114, 255)
-TEAL_DARK = (20, 90, 82, 255)
 CREAM = (238, 241, 240, 255)
-AMBER = (201, 106, 47, 255)
+AMBER = (222, 140, 60, 255)
 
 
 def draw_icon() -> Image.Image:
@@ -34,34 +35,34 @@ def draw_icon() -> Image.Image:
         fill=TEAL,
     )
 
-    # Dial face.
-    face_r = SIZE * 0.30
-    cx = cy = SIZE / 2
-    draw.ellipse([cx - face_r, cy - face_r, cx + face_r, cy + face_r], fill=CREAM)
-    draw.ellipse(
-        [cx - face_r, cy - face_r, cx + face_r, cy + face_r],
-        outline=TEAL_DARK,
-        width=int(SIZE * 0.012),
+    cx, cy = SIZE / 2, SIZE * 0.56
+    r = SIZE * 0.24
+    globe_width = int(SIZE * 0.014)
+
+    # Globe: outline + equator + one meridian.
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=CREAM, width=globe_width)
+    draw.ellipse([cx - r, cy - r * 0.32, cx + r, cy + r * 0.32], outline=CREAM, width=globe_width)
+    rx = r * 0.42
+    draw.ellipse([cx - rx, cy - r, cx + rx, cy + r], outline=CREAM, width=globe_width)
+
+    # Headphone band arcing over the top, with two ear cups.
+    band_r = r * 1.28
+    draw.arc(
+        [cx - band_r, cy - band_r * 1.05, cx + band_r, cy + band_r * 0.55],
+        start=195,
+        end=345,
+        fill=AMBER,
+        width=int(SIZE * 0.032),
     )
-
-    # Tuning needle, angled like a dial mid-sweep.
-    import math
-
-    needle_len = face_r * 0.82
-    angle = math.radians(-35)
-    tip = (cx + needle_len * math.cos(angle), cy + needle_len * math.sin(angle))
-    draw.line([(cx, cy), tip], fill=AMBER, width=int(SIZE * 0.028))
-    hub_r = SIZE * 0.022
-    draw.ellipse([cx - hub_r, cy - hub_r, cx + hub_r, cy + hub_r], fill=AMBER)
-
-    # Preset tick marks around the dial rim.
-    for i in range(10):
-        tick_angle = math.radians(-90 + i * 36)
-        inner = face_r * 0.86
-        outer = face_r * 0.98
-        x1, y1 = cx + inner * math.cos(tick_angle), cy + inner * math.sin(tick_angle)
-        x2, y2 = cx + outer * math.cos(tick_angle), cy + outer * math.sin(tick_angle)
-        draw.line([(x1, y1), (x2, y2)], fill=TEAL_DARK, width=int(SIZE * 0.008))
+    cup_w, cup_h = SIZE * 0.075, SIZE * 0.11
+    for side in (-1, 1):
+        ex = cx + side * band_r * 0.98
+        ey = cy - band_r * 0.05
+        draw.rounded_rectangle(
+            [ex - cup_w / 2, ey - cup_h / 2, ex + cup_w / 2, ey + cup_h / 2],
+            radius=cup_w * 0.4,
+            fill=AMBER,
+        )
 
     return img
 
@@ -83,8 +84,9 @@ def main() -> None:
         icon.resize((s, s), Image.LANCZOS).save(OUT_DIR / f"icon_{s}.png")
     print("wrote icon_16..512.png")
 
-    # macOS .icns via iconutil (macOS-only tool; skipped elsewhere — the
-    # release workflow's macOS job regenerates it from icon.png instead).
+    # macOS .icns via iconutil (macOS-only tool). The generated file is
+    # committed alongside the others, so this only needs re-running on a
+    # Mac when the icon design changes — CI just uses the committed file.
     if sys.platform == "darwin":
         iconset = OUT_DIR / "icon.iconset"
         iconset.mkdir(exist_ok=True)
