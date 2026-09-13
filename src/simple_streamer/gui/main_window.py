@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QUrl, Qt, QObject, QThread, Signal
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
-from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar
+from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar, QPushButton
 
 from simple_streamer import __version__
 from simple_streamer.core.presets import PresetStore, PresetSlot
@@ -55,6 +55,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self._tabs)
 
         self.setStatusBar(QStatusBar())
+        self._stop_button = QPushButton("Stop")
+        self._stop_button.clicked.connect(self._stop_playback)
+        self.statusBar().addPermanentWidget(self._stop_button)
+
         self._active_category = "radio"
         self._active_number: int | None = None
 
@@ -116,6 +120,15 @@ class MainWindow(QMainWindow):
         self._player.setSource(QUrl(url))
         self._player.play()
         self._decks[category].set_now_playing(f"Tuning in: {label}…")
+
+    def _stop_playback(self) -> None:
+        self._player.stop()
+        if self._active_number is not None:
+            self._decks[self._active_category].set_now_playing("Nothing playing")
+        # Clearing this also invalidates any podcast resolution still in
+        # flight (see _on_episode_resolved's guard), so it won't start
+        # playing something after the user asked for silence.
+        self._active_number = None
 
     def _on_playback_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
         if self._active_number is None:
