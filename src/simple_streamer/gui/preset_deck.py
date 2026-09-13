@@ -126,7 +126,8 @@ class PresetDeckWidget(QWidget):
         label, ok = QInputDialog.getText(self, "Assign preset", "Name:", text=slot.label)
         if not ok or not label:
             return
-        url, ok = QInputDialog.getText(self, "Assign preset", "Stream URL:", text=slot.url)
+        url_prompt = "Podcast RSS feed URL:" if self._category == "podcasts" else "Stream URL:"
+        url, ok = QInputDialog.getText(self, "Assign preset", url_prompt, text=slot.url)
         if not ok or not url:
             return
         self._store.assign(self._category, number, label, url)

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +10,26 @@ from platformdirs import user_config_dir
 
 SLOTS_PER_DECK = 10
 CATEGORIES = ("radio", "podcasts")
+
+# Seeded into a fresh preset store (first run, no saved presets.json yet).
+# Radio entries are direct live-stream URLs; podcast entries are RSS feed
+# URLs, resolved to the latest episode at play time (see core/podcasts.py).
+DEFAULT_PRESETS: dict[str, list[tuple[str, str]]] = {
+    "radio": [
+        ("BBC Radio 1", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_one&bitrate=320000"),
+        ("BBC Radio 2", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_two&bitrate=320000"),
+        ("BBC Radio 3", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_three&bitrate=320000"),
+        ("BBC Radio 4", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_fourfm&bitrate=320000"),
+        ("BBC Radio 5 Live", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=320000"),
+        ("BBC Radio Scotland", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_scotland_fm&bitrate=320000"),
+    ],
+    "podcasts": [
+        ("The Diary Of A CEO", "https://rss2.flightcast.com/xmsftuzjjykcmqwolaqn6mdn"),
+        ("The Rock and Roll Geek Show", "https://www.americanheartbreak.com/rnrgeekwp/?feed=podcast"),
+        ("This Week in Retro", "https://feed.podbean.com/TWIR/feed.xml"),
+        ("The Retro Hour", "https://audioboom.com/channels/4970769.rss"),
+    ],
+}
 
 
 @dataclass
@@ -27,12 +47,24 @@ class PresetStore:
     """Holds the radio and podcast preset decks and persists them to disk."""
 
     def __init__(self, config_path: Optional[Path] = None):
+        explicit_path = config_path is not None
         self._config_path = config_path or self._default_config_path()
         self._decks: dict[str, list[PresetSlot]] = {
             category: [PresetSlot(number=n) for n in range(1, SLOTS_PER_DECK + 1)]
             for category in CATEGORIES
         }
-        self.load()
+        if self._config_path.exists():
+            self.load()
+        elif not explicit_path:
+            # Real first run on this machine (no config yet, no path override
+            # from a caller like the test suite) — seed the starter presets.
+            self._seed_defaults()
+            self.save()
+
+    def _seed_defaults(self) -> None:
+        for category, entries in DEFAULT_PRESETS.items():
+            for number, (label, url) in enumerate(entries, start=1):
+                self.assign(category, number, label, url)
 
     @staticmethod
     def _default_config_path() -> Path:

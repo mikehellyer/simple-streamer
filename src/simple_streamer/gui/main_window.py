@@ -6,25 +6,27 @@ from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar
 
 from simple_streamer import __version__
-from simple_streamer.core.presets import PresetStore
+from simple_streamer.core.presets import PresetStore, PresetSlot
+from simple_streamer.core.podcasts import latest_episode
 from simple_streamer.core.updater import check_for_update, API_TIMEOUT_SECONDS
 from simple_streamer.gui.preset_deck import PresetDeckWidget
 
 UPDATE_OWNER = "mikehellyer"
 UPDATE_REPO = "simple-streamer"
+BACKGROUND_JOIN_TIMEOUT_MS = (API_TIMEOUT_SECONDS + 1) * 1000
 
 
-class _UpdateCheckWorker(QObject):
-    finished = Signal(object)  # UpdateInfo | None
+class _CallableWorker(QObject):
+    """Runs a zero-arg callable on a background thread and emits its result."""
 
-    def __init__(self, version: str, owner: str, repo: str):
+    finished = Signal(object)
+
+    def __init__(self, fn):
         super().__init__()
-        self._version = version
-        self._owner = owner
-        self._repo = repo
+        self._fn = fn
 
     def run(self) -> None:
-        self.finished.emit(check_for_update(self._version, self._owner, self._repo))
+        self.finished.emit(self._fn())
 
 
 class MainWindow(QMainWindow):
@@ -34,6 +36,7 @@ class MainWindow(QMainWindow):
         self.resize(560, 420)
 
         self._store = PresetStore()
+        self._background_threads: list[QThread] = []
 
         self._audio_output = QAudioOutput()
         self._player = QMediaPlayer()
@@ -59,15 +62,49 @@ class MainWindow(QMainWindow):
     def _current_deck(self) -> PresetDeckWidget:
         return self._tabs.currentWidget()
 
+    def _run_in_background(self, fn, on_finished) -> None:
+        """Run fn() off the GUI thread; on_finished(result) runs back on it."""
+        thread = QThread()
+        worker = _CallableWorker(fn)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(on_finished)
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(lambda: self._background_threads.remove(thread))
+        # Keep the worker alive for the thread's lifetime.
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        self._background_threads.append(thread)
+        thread.start()
+
     def _play_slot(self, category: str, number: int) -> None:
         slot = self._store.slot(category, number)
         if slot.is_empty:
             return
         self._active_category = category
         self._active_number = number
-        self._player.setSource(QUrl(slot.url))
+
+        if category == "podcasts":
+            self._decks[category].set_now_playing(f"Finding the latest episode of {slot.label}…")
+            self._run_in_background(
+                lambda: latest_episode(slot.url),
+                lambda episode: self._on_episode_resolved(slot, episode),
+            )
+        else:
+            self._start_playback(category, slot.url, slot.label)
+
+    def _on_episode_resolved(self, slot: PresetSlot, episode) -> None:
+        if self._active_category != "podcasts" or self._active_number != slot.number:
+            return  # the user moved on to something else while this was loading
+        if episode is None:
+            self._decks["podcasts"].set_now_playing(f"Couldn't load {slot.label} right now")
+            return
+        self._start_playback("podcasts", episode.audio_url, f"{slot.label} — {episode.title}")
+
+    def _start_playback(self, category: str, url: str, label: str) -> None:
+        self._player.setSource(QUrl(url))
         self._player.play()
-        self._decks[category].set_now_playing(f"Tuning in: {slot.label}…")
+        self._decks[category].set_now_playing(f"Tuning in: {label}…")
 
     def _on_playback_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
         if self._active_number is None:
@@ -98,13 +135,10 @@ class MainWindow(QMainWindow):
         super().keyReleaseEvent(event)
 
     def _check_for_updates(self) -> None:
-        self._update_thread = QThread()
-        self._update_worker = _UpdateCheckWorker(__version__, UPDATE_OWNER, UPDATE_REPO)
-        self._update_worker.moveToThread(self._update_thread)
-        self._update_thread.started.connect(self._update_worker.run)
-        self._update_worker.finished.connect(self._on_update_checked)
-        self._update_worker.finished.connect(self._update_thread.quit)
-        self._update_thread.start()
+        self._run_in_background(
+            lambda: check_for_update(__version__, UPDATE_OWNER, UPDATE_REPO),
+            self._on_update_checked,
+        )
 
     def _on_update_checked(self, info) -> None:
         if info:
@@ -113,8 +147,7 @@ class MainWindow(QMainWindow):
             )
 
     def closeEvent(self, event) -> None:
-        thread = getattr(self, "_update_thread", None)
-        if thread is not None and thread.isRunning():
+        for thread in list(self._background_threads):
             thread.quit()
-            thread.wait((API_TIMEOUT_SECONDS + 1) * 1000)
+            thread.wait(BACKGROUND_JOIN_TIMEOUT_MS)
         super().closeEvent(event)
