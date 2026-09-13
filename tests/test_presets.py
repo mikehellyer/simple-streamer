@@ -1,3 +1,5 @@
+import json
+
 from simple_streamer.core.presets import PresetStore, SLOTS_PER_DECK, CATEGORIES, DEFAULT_PRESETS
 
 
@@ -66,3 +68,23 @@ def test_real_first_run_seeds_the_starter_presets(tmp_path, monkeypatch):
             assert slot.label == label
             assert slot.url == url
     assert target.exists()
+
+
+def test_a_new_default_reaches_a_machine_with_an_older_saved_file(tmp_path, monkeypatch):
+    # Simulate an existing install: its saved file predates a preset that
+    # got added to DEFAULT_PRESETS later (e.g. a new podcast). The slot for
+    # it exists in the file (every slot is always serialized) but empty.
+    target = tmp_path / "presets.json"
+    monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck[0] = {"number": 1, "label": "The Diary Of A CEO", "url": "https://old.example/feed.xml"}
+    target.write_text(json.dumps({"radio": [], "podcasts": old_deck}))
+
+    store = PresetStore()
+
+    # The user's existing assignment is untouched...
+    assert store.slot("podcasts", 1).url == "https://old.example/feed.xml"
+    # ...but a default added after that file was written now fills in.
+    label, url = DEFAULT_PRESETS["podcasts"][4]
+    assert store.slot("podcasts", 5).label == label
+    assert store.slot("podcasts", 5).url == url

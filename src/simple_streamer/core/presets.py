@@ -1,4 +1,4 @@
-"""Preset slots for Simple-Streamer: two independent 15-slot decks (radio, podcasts)."""
+"""Preset slots for Simple-Streamer: two independent 20-slot decks (radio, podcasts)."""
 from __future__ import annotations
 
 import json
@@ -8,7 +8,7 @@ from typing import Optional
 
 from platformdirs import user_config_dir
 
-SLOTS_PER_DECK = 15
+SLOTS_PER_DECK = 20
 CATEGORIES = ("radio", "podcasts")
 
 # Seeded into a fresh preset store (first run, no saved presets.json yet).
@@ -28,6 +28,7 @@ DEFAULT_PRESETS: dict[str, list[tuple[str, str]]] = {
         ("The Rock and Roll Geek Show", "https://www.americanheartbreak.com/rnrgeekwp/?feed=podcast"),
         ("This Week in Retro", "https://feed.podbean.com/TWIR/feed.xml"),
         ("The Retro Hour", "https://audioboom.com/channels/4970769.rss"),
+        ("Rees Rambles", "https://anchor.fm/s/7c6f7b84/podcast/rss"),
     ],
 }
 
@@ -53,18 +54,32 @@ class PresetStore:
             category: [PresetSlot(number=n) for n in range(1, SLOTS_PER_DECK + 1)]
             for category in CATEGORIES
         }
+
+        if explicit_path:
+            # A caller-supplied path (e.g. the test suite) opts out of
+            # defaults entirely, so behavior stays predictable no matter
+            # what's baked into the app.
+            self.load()
+            return
+
         if self._config_path.exists():
             self.load()
-        elif not explicit_path:
-            # Real first run on this machine (no config yet, no path override
-            # from a caller like the test suite) — seed the starter presets.
-            self._seed_defaults()
-            self.save()
+        self._fill_empty_slots_from_defaults()
+        self.save()
 
-    def _seed_defaults(self) -> None:
+    def _fill_empty_slots_from_defaults(self) -> None:
+        """Populate any still-empty slot from DEFAULT_PRESETS.
+
+        Runs on every real startup, not just the very first one: an empty
+        slot means nothing has been assigned to it, so it's always safe to
+        drop in whatever Simple-Streamer currently ships as a default. This
+        is how a newly added default preset, or a bigger deck, reaches a
+        machine that already has a presets.json from an earlier version.
+        """
         for category, entries in DEFAULT_PRESETS.items():
             for number, (label, url) in enumerate(entries, start=1):
-                self.assign(category, number, label, url)
+                if self.slot(category, number).is_empty:
+                    self.assign(category, number, label, url)
 
     @staticmethod
     def _default_config_path() -> Path:

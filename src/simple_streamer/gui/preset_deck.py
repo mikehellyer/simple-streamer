@@ -1,4 +1,4 @@
-"""A single 15-slot preset deck (used for both the Radio tab and the Podcasts tab)."""
+"""A single 20-slot preset deck (used for both the Radio tab and the Podcasts tab)."""
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
