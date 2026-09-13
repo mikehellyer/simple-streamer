@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Simple-Streamer
+Comment=Internet radio and podcast player
+Exec=/opt/simple-streamer/Simple-Streamer
+Icon=simple-streamer
+Terminal=false
+Categories=AudioVideo;Audio;Player;
