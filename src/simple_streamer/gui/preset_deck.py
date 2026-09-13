@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QInputDialog,
     QFrame,
+    QProgressBar,
 )
 
 from simple_streamer.core.presets import PresetStore
@@ -74,6 +75,13 @@ class PresetDeckWidget(QWidget):
         now_playing_row.addWidget(self._stop_button)
         layout.addLayout(now_playing_row)
 
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)  # indeterminate — we don't know how long a lookup takes
+        self._progress.setTextVisible(False)
+        self._progress.setFixedHeight(4)
+        self._progress.hide()
+        layout.addWidget(self._progress)
+
         grid_container = QWidget()
         self._grid = QGridLayout(grid_container)
         for slot in store.deck(category):
@@ -122,6 +130,9 @@ class PresetDeckWidget(QWidget):
 
     def set_now_playing(self, text: str) -> None:
         self._now_playing.setText(text)
+
+    def set_loading(self, loading: bool) -> None:
+        self._progress.setVisible(loading)
 
     def _on_slot_clicked(self, number: int) -> None:
         slot = self._store.slot(self._category, number)

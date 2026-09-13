@@ -11,6 +11,7 @@ from simple_streamer import __version__
 from simple_streamer.core.presets import PresetStore, PresetSlot
 from simple_streamer.core.podcasts import latest_episode
 from simple_streamer.core.pls_resolver import resolve_pls
+from simple_streamer.core.icy_metadata import IcyMetadataListener
 from simple_streamer.core.updater import check_for_update, API_TIMEOUT_SECONDS
 from simple_streamer.gui.preset_deck import PresetDeckWidget
 
@@ -30,6 +31,15 @@ class _CallableWorker(QObject):
 
     def run(self) -> None:
         self.finished.emit(self._fn())
+
+
+class _IcySignalBridge(QObject):
+    """Lets IcyMetadataListener (plain threading, no Qt affinity) hand a
+    title back to the GUI thread safely — emitting a signal is thread-safe
+    even though calling a widget method directly from another thread isn't.
+    """
+
+    title_changed = Signal(str)
 
 
 class MainWindow(QMainWindow):
@@ -62,6 +72,10 @@ class MainWindow(QMainWindow):
 
         self._active_category = "radio"
         self._active_number: int | None = None
+        self._now_playing_detail: str | None = None
+        self._icy_listener: IcyMetadataListener | None = None
+        self._icy_bridge = _IcySignalBridge()
+        self._icy_bridge.title_changed.connect(self._on_icy_title)
 
         self._check_for_updates()
 
@@ -97,8 +111,15 @@ class MainWindow(QMainWindow):
         slot = self._store.slot(category, number)
         if slot.is_empty:
             return
+
+        self._stop_icy_listener()
+        self._now_playing_detail = None
+        for deck in self._decks.values():
+            deck.set_loading(False)
+
         self._active_category = category
         self._active_number = number
+        self._decks[category].set_loading(True)
 
         if category == "podcasts":
             self._decks[category].set_now_playing(f"Finding the latest episode of {slot.label}…")
@@ -123,14 +144,17 @@ class MainWindow(QMainWindow):
             return  # the user moved on to something else while this was loading
         if episode is None:
             self._decks["podcasts"].set_now_playing(f"Couldn't load {slot.label} right now")
+            self._decks["podcasts"].set_loading(False)
             return
-        self._start_playback("podcasts", episode.audio_url, f"{slot.label} — {episode.title}")
+        self._now_playing_detail = episode.title
+        self._start_playback("podcasts", episode.audio_url, slot.label)
 
     def _on_pls_resolved(self, category: str, slot: PresetSlot, resolved_url: str | None) -> None:
         if self._active_category != category or self._active_number != slot.number:
             return  # the user moved on to something else while this was loading
         if resolved_url is None:
             self._decks[category].set_now_playing(f"Couldn't load {slot.label} right now")
+            self._decks[category].set_loading(False)
             return
         self._start_playback(category, resolved_url, slot.label)
 
@@ -138,30 +162,57 @@ class MainWindow(QMainWindow):
         self._player.setSource(QUrl(url))
         self._player.play()
         self._decks[category].set_now_playing(f"Tuning in: {label}…")
+        if category == "radio":
+            self._icy_listener = IcyMetadataListener(url, self._icy_bridge.title_changed.emit)
+            self._icy_listener.start()
+
+    def _stop_icy_listener(self) -> None:
+        if self._icy_listener is not None:
+            self._icy_listener.stop()
+            self._icy_listener = None
+
+    def _on_icy_title(self, title: str) -> None:
+        if self._active_category != "radio" or self._active_number is None:
+            return  # a stale title from a station we've since moved away from
+        self._now_playing_detail = title
+        self._refresh_now_playing()
+
+    def _refresh_now_playing(self) -> None:
+        slot = self._store.slot(self._active_category, self._active_number)
+        deck = self._decks[self._active_category]
+        if self._now_playing_detail:
+            deck.set_now_playing(f"Now playing: {slot.label} — {self._now_playing_detail}")
+        else:
+            deck.set_now_playing(f"Now playing: {slot.label}")
 
     def _stop_playback(self) -> None:
         self._player.stop()
+        self._stop_icy_listener()
+        self._now_playing_detail = None
         if self._active_number is not None:
             self._decks[self._active_category].set_now_playing("Nothing playing")
-        # Clearing this also invalidates any podcast resolution still in
-        # flight (see _on_episode_resolved's guard), so it won't start
-        # playing something after the user asked for silence.
+            self._decks[self._active_category].set_loading(False)
+        # Clearing this also invalidates any podcast/pls resolution still in
+        # flight (see the guards above), so it won't start playing
+        # something after the user asked for silence.
         self._active_number = None
 
     def _on_playback_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
         if self._active_number is None:
             return
-        slot = self._store.slot(self._active_category, self._active_number)
         deck = self._decks[self._active_category]
         if state == QMediaPlayer.PlayingState:
-            deck.set_now_playing(f"Now playing: {slot.label}")
+            deck.set_loading(False)
+            self._refresh_now_playing()
         elif state == QMediaPlayer.StoppedState:
+            deck.set_loading(False)
             deck.set_now_playing("Nothing playing")
 
     def _on_player_error(self, error, error_string: str) -> None:
         if self._active_number is None:
             return
         deck = self._decks[self._active_category]
+        deck.set_loading(False)
         deck.set_now_playing(f"Couldn't play that stream: {error_string}")
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
@@ -189,6 +240,7 @@ class MainWindow(QMainWindow):
             )
 
     def closeEvent(self, event) -> None:
+        self._stop_icy_listener()
         for thread in list(self._background_threads):
             thread.quit()
             thread.wait(BACKGROUND_JOIN_TIMEOUT_MS)
