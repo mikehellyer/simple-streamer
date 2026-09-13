@@ -12,7 +12,24 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QFrame,
     QProgressBar,
+    QSizePolicy,
 )
+
+GRID_COLUMNS = 5
+BUTTON_LABEL_MAX_CHARS = 16
+
+
+def _shorten(label: str) -> str:
+    """Fit a preset's name on a button of the fixed grid size.
+
+    All buttons are forced to the same width (see the grid-stretch setup in
+    PresetDeckWidget), so a long name is elided rather than allowed to
+    widen its own column — the full name still shows in the F1 legend and
+    as this button's tooltip.
+    """
+    if len(label) <= BUTTON_LABEL_MAX_CHARS:
+        return label
+    return label[: BUTTON_LABEL_MAX_CHARS - 1].rstrip() + "…"
 
 from simple_streamer.core.presets import PresetStore
 
@@ -87,14 +104,30 @@ class PresetDeckWidget(QWidget):
         for slot in store.deck(category):
             button = QPushButton()
             button.setMinimumHeight(64)
+            # Ignored (not Expanding) so a long label like "BBC Radio 5 Live
+            # Sports Extra" doesn't inflate this button's own size hint and
+            # drag its whole column wider than the others — column width
+            # then comes purely from the equal stretch factors below.
+            button.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
             button.clicked.connect(lambda _checked=False, n=slot.number: self._on_slot_clicked(n))
             button.setContextMenuPolicy(Qt.CustomContextMenu)
             button.customContextMenuRequested.connect(
                 lambda _pos, n=slot.number: self._assign_slot(n)
             )
-            row, col = divmod(slot.number - 1, 5)
+            row, col = divmod(slot.number - 1, GRID_COLUMNS)
             self._grid.addWidget(button, row, col)
             self._buttons[slot.number] = button
+
+        # Equal stretch on every row/column — otherwise QGridLayout sizes
+        # each column to its widest button's natural content (a long label
+        # like "BBC Radio 5 Live Sports Extra" would make its whole column
+        # wider than the others), leaving same-row buttons visibly uneven.
+        row_count = -(-len(store.deck(category)) // GRID_COLUMNS)
+        for col in range(GRID_COLUMNS):
+            self._grid.setColumnStretch(col, 1)
+        for row in range(row_count):
+            self._grid.setRowStretch(row, 1)
+
         layout.addWidget(grid_container)
 
         hint = QLabel("Click a slot to play it · right-click to assign · hold F1 for the legend")
@@ -116,7 +149,12 @@ class PresetDeckWidget(QWidget):
     def refresh_labels(self) -> None:
         for slot in self._store.deck(self._category):
             button = self._buttons[slot.number]
-            button.setText(f"{slot.number}\n{slot.label}" if slot.label else str(slot.number))
+            if slot.label:
+                button.setText(f"{slot.number}\n{_shorten(slot.label)}")
+                button.setToolTip(slot.label)
+            else:
+                button.setText(str(slot.number))
+                button.setToolTip("")
         self._legend.refresh()
 
     def show_legend(self, visible: bool) -> None:
