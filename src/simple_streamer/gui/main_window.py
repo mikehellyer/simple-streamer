@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from PySide6.QtCore import QUrl, Qt, QObject, QThread, Signal
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
-from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar, QPushButton
+from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar
 
 from simple_streamer import __version__
 from simple_streamer.core.presets import PresetStore, PresetSlot
 from simple_streamer.core.podcasts import latest_episode
+from simple_streamer.core.pls_resolver import resolve_pls
 from simple_streamer.core.updater import check_for_update, API_TIMEOUT_SECONDS
 from simple_streamer.gui.preset_deck import PresetDeckWidget
 
@@ -50,14 +53,12 @@ class MainWindow(QMainWindow):
         for category, title in (("radio", "Radio"), ("podcasts", "Podcasts")):
             deck = PresetDeckWidget(category, self._store)
             deck.slot_activated.connect(self._play_slot)
+            deck.stop_requested.connect(self._stop_playback)
             self._tabs.addTab(deck, title)
             self._decks[category] = deck
         self.setCentralWidget(self._tabs)
 
         self.setStatusBar(QStatusBar())
-        self._stop_button = QPushButton("Stop")
-        self._stop_button.clicked.connect(self._stop_playback)
-        self.statusBar().addPermanentWidget(self._stop_button)
 
         self._active_category = "radio"
         self._active_number: int | None = None
@@ -105,6 +106,15 @@ class MainWindow(QMainWindow):
                 lambda: latest_episode(slot.url),
                 lambda episode: self._on_episode_resolved(slot, episode),
             )
+        elif urlparse(slot.url).path.endswith(".pls"):
+            # A handful of stations (Planet Rock) hand out a .pls redirector
+            # with a short-lived signed URL inside instead of a stable
+            # stream link, so it has to be re-resolved on every play.
+            self._decks[category].set_now_playing(f"Tuning in: {slot.label}…")
+            self._run_in_background(
+                lambda: resolve_pls(slot.url),
+                lambda resolved_url: self._on_pls_resolved(category, slot, resolved_url),
+            )
         else:
             self._start_playback(category, slot.url, slot.label)
 
@@ -115,6 +125,14 @@ class MainWindow(QMainWindow):
             self._decks["podcasts"].set_now_playing(f"Couldn't load {slot.label} right now")
             return
         self._start_playback("podcasts", episode.audio_url, f"{slot.label} — {episode.title}")
+
+    def _on_pls_resolved(self, category: str, slot: PresetSlot, resolved_url: str | None) -> None:
+        if self._active_category != category or self._active_number != slot.number:
+            return  # the user moved on to something else while this was loading
+        if resolved_url is None:
+            self._decks[category].set_now_playing(f"Couldn't load {slot.label} right now")
+            return
+        self._start_playback(category, resolved_url, slot.label)
 
     def _start_playback(self, category: str, url: str, label: str) -> None:
         self._player.setSource(QUrl(url))

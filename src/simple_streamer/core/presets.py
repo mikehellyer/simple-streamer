@@ -12,8 +12,10 @@ SLOTS_PER_DECK = 20
 CATEGORIES = ("radio", "podcasts")
 
 # Seeded into a fresh preset store (first run, no saved presets.json yet).
-# Radio entries are direct live-stream URLs; podcast entries are RSS feed
-# URLs, resolved to the latest episode at play time (see core/podcasts.py).
+# Radio entries are direct live-stream URLs (a .pls entry is a redirector
+# with a short-lived signed URL inside, re-resolved at play time — see
+# core/pls_resolver.py); podcast entries are RSS feed URLs, resolved to the
+# latest episode at play time (see core/podcasts.py).
 DEFAULT_PRESETS: dict[str, list[tuple[str, str]]] = {
     "radio": [
         ("BBC Radio 1", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_one&bitrate=320000"),
@@ -21,7 +23,14 @@ DEFAULT_PRESETS: dict[str, list[tuple[str, str]]] = {
         ("BBC Radio 3", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_three&bitrate=320000"),
         ("BBC Radio 4", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_fourfm&bitrate=320000"),
         ("BBC Radio 5 Live", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=320000"),
+        ("BBC Radio 5 Live Sports Extra", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live_sports_extra&bitrate=320000"),
         ("BBC Radio Scotland", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_scotland_fm&bitrate=320000"),
+        ("talkSPORT", "http://talksport.live.stream.broadcasting.news/stream-mp3?ref=RF"),
+        ("talkSPORT 2", "http://talksport.live.stream.broadcasting.news/stream2-mp3?ref=RF"),
+        ("LBC", "http://icecast.thisisdax.com/LBCUKMP3"),
+        ("Planet Rock", "http://www.radiofeeds.net/playlists/bauerflash.pls?station=planetrock-mp3"),
+        ("Manx Radio FM", "http://listen-manxradio.sharp-stream.com/manxradiofm.mp3?ref=RF"),
+        ("Sportsnet 590 The Fan", "https://rogers-hls.leanstream.co/rogers/tor590.stream/icy"),
     ],
     "podcasts": [
         ("The Diary Of A CEO", "https://rss2.flightcast.com/xmsftuzjjykcmqwolaqn6mdn"),

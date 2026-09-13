@@ -5,6 +5,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
+    QHBoxLayout,
     QGridLayout,
     QLabel,
     QPushButton,
@@ -52,6 +53,7 @@ class PresetDeckWidget(QWidget):
     """One tab's worth of UI: a now-playing readout and a 5-wide grid of preset buttons."""
 
     slot_activated = Signal(str, int)  # category, slot number
+    stop_requested = Signal()
 
     def __init__(self, category: str, store: PresetStore, parent=None):
         super().__init__(parent)
@@ -61,10 +63,16 @@ class PresetDeckWidget(QWidget):
 
         layout = QVBoxLayout(self)
 
+        now_playing_row = QHBoxLayout()
         self._now_playing = QLabel("Nothing playing")
         self._now_playing.setObjectName("nowPlaying")
         self._now_playing.setStyleSheet("font-size: 16px; font-weight: 600; padding: 8px;")
-        layout.addWidget(self._now_playing)
+        now_playing_row.addWidget(self._now_playing, stretch=1)
+
+        self._stop_button = QPushButton("Stop")
+        self._stop_button.clicked.connect(self.stop_requested)
+        now_playing_row.addWidget(self._stop_button)
+        layout.addLayout(now_playing_row)
 
         grid_container = QWidget()
         self._grid = QGridLayout(grid_container)
