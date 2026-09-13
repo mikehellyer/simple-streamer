@@ -2,6 +2,9 @@
 
 A simple internet radio and podcast player for Linux, macOS, and Windows.
 
+Created by [Mike Hellyer](https://github.com/mikehellyer), built with
+[Claude Code](https://claude.com/claude-code).
+
 ## Status
 
 The Radio and Podcasts tabs each have 20 preset slots you can assign a name +
