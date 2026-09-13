@@ -63,7 +63,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(f"Simple-Streamer v{__version__}")
         self.setWindowIcon(QIcon(str(ICON_PATH)))
-        self.resize(600, 580)
+        self.resize(1020, 580)
 
         self._store = PresetStore()
         self._background_threads: list[QThread] = []

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 GRID_COLUMNS = 5
-BUTTON_LABEL_MAX_CHARS = 16
+BUTTON_LABEL_MAX_CHARS = 30  # fits the longest built-in preset name at the default window width
 
 
 def _shorten(label: str) -> str:

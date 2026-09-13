@@ -11,6 +11,6 @@ def test_label_at_the_limit_is_unchanged():
 
 
 def test_long_label_is_elided_with_ellipsis():
-    result = _shorten("BBC Radio 5 Live Sports Extra")
+    result = _shorten("A Podcast With A Genuinely Very Long Name")
     assert result.endswith("…")
     assert len(result) == BUTTON_LABEL_MAX_CHARS
