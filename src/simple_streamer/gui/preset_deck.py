@@ -1,4 +1,4 @@
-"""A single 10-slot preset deck (used for both the Radio tab and the Podcasts tab)."""
+"""A single 15-slot preset deck (used for both the Radio tab and the Podcasts tab)."""
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
@@ -44,11 +44,12 @@ class LegendOverlay(QFrame):
 
         for slot in self._store.deck(self._category):
             text = f"{slot.number}   {slot.label or '(empty)'}"
-            self._grid.addWidget(QLabel(text), slot.number, (slot.number - 1) % 2)
+            row, col = divmod(slot.number - 1, 2)
+            self._grid.addWidget(QLabel(text), row + 1, col)
 
 
 class PresetDeckWidget(QWidget):
-    """One tab's worth of UI: a now-playing readout and a 5x2 grid of preset buttons."""
+    """One tab's worth of UI: a now-playing readout and a 5-wide grid of preset buttons."""
 
     slot_activated = Signal(str, int)  # category, slot number
 

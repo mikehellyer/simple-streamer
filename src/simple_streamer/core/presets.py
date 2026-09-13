@@ -1,4 +1,4 @@
-"""Preset slots for Simple-Streamer: two independent 10-slot decks (radio, podcasts)."""
+"""Preset slots for Simple-Streamer: two independent 15-slot decks (radio, podcasts)."""
 from __future__ import annotations
 
 import json
@@ -8,7 +8,7 @@ from typing import Optional
 
 from platformdirs import user_config_dir
 
-SLOTS_PER_DECK = 10
+SLOTS_PER_DECK = 15
 CATEGORIES = ("radio", "podcasts")
 
 # Seeded into a fresh preset store (first run, no saved presets.json yet).

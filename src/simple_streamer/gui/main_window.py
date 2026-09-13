@@ -33,7 +33,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"Simple-Streamer v{__version__}")
-        self.resize(560, 420)
+        self.resize(560, 500)
 
         self._store = PresetStore()
         self._background_threads: list[QThread] = []
