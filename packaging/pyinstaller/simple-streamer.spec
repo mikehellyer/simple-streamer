@@ -29,6 +29,7 @@ a = Analysis(
     binaries=[],
     datas=[
         (str(src / "simple_streamer" / "gui" / "resources" / "icon.png"), "simple_streamer/gui/resources"),
+        (str(src / "simple_streamer" / "gui" / "resources" / "wordmark.png"), "simple_streamer/gui/resources"),
     ],
     hiddenimports=[],
     hookspath=[],

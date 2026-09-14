@@ -38,6 +38,7 @@ UPDATE_OWNER = "mikehellyer"
 UPDATE_REPO = "simple-streamer"
 BACKGROUND_JOIN_TIMEOUT_MS = (API_TIMEOUT_SECONDS + 1) * 1000
 ICON_PATH = Path(__file__).parent / "resources" / "icon.png"
+WORDMARK_PATH = Path(__file__).parent / "resources" / "wordmark.png"
 
 
 class _CallableWorker(QObject):
@@ -95,15 +96,12 @@ class MainWindow(QMainWindow):
         header = QWidget()
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(12, 10, 12, 4)
-        logo = QLabel()
-        logo.setPixmap(
-            QPixmap(str(ICON_PATH)).scaled(
-                32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation
+        wordmark = QLabel()
+        wordmark.setPixmap(
+            QPixmap(str(WORDMARK_PATH)).scaledToHeight(
+                80, Qt.SmoothTransformation
             )
         )
-        header_layout.addWidget(logo)
-        wordmark = QLabel("Simple-Streamer")
-        wordmark.setStyleSheet("font-size: 18px; font-weight: 700;")
         header_layout.addWidget(wordmark)
         header_layout.addWidget(self._visualizer, stretch=1)
 
