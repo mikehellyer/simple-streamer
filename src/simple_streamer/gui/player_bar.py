@@ -12,6 +12,8 @@ from PySide6.QtCore import Signal, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar
 
+from simple_streamer.core.browser_raise import try_raise_browser_window
+
 
 class PlayerBar(QFrame):
     stop_requested = Signal()
@@ -67,3 +69,4 @@ class PlayerBar(QFrame):
     def _open_website(self) -> None:
         if self._website_url:
             QDesktopServices.openUrl(QUrl(self._website_url))
+            try_raise_browser_window()
