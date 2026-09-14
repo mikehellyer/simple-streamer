@@ -11,7 +11,7 @@ but falls back down gradually, which is what actually makes it read as
 from __future__ import annotations
 
 import numpy as np
-from PySide6.QtCore import Qt, QTimer, QRect
+from PySide6.QtCore import Qt, QTimer, QRect, Signal
 from PySide6.QtGui import QColor, QPainter, QFont
 from PySide6.QtWidgets import QWidget, QSizePolicy
 
@@ -50,6 +50,11 @@ def _blend(off: QColor, on: QColor, t: float) -> QColor:
 
 
 class StereoVisualizer(QWidget):
+    # Emitted every tick with the same smoothed (left, right) band levels
+    # this widget just drew — lets other widgets (the window glow) react
+    # to the music in sync with the EQ display, without a second FFT.
+    levels_updated = Signal(object, object)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedHeight(72)
@@ -88,6 +93,7 @@ class StereoVisualizer(QWidget):
             display = self._display[channel]
             self._display[channel] = np.where(target > display, target, display * DECAY_FACTOR)
         self.update()
+        self.levels_updated.emit(self._display["left"], self._display["right"])
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)

@@ -22,6 +22,7 @@ from simple_streamer import __version__
 from simple_streamer.core.presets import PresetStore
 from simple_streamer.core.podcasts import latest_episode
 from simple_streamer.core.episode_progress import EpisodeProgressStore
+from simple_streamer.core.settings import SettingsStore
 from simple_streamer.core.pls_resolver import resolve_pls
 from simple_streamer.core.icy_metadata import IcyMetadataListener
 from simple_streamer.core.bbc_nowplaying import bbc_service_id_from_url
@@ -36,6 +37,7 @@ from simple_streamer.gui.player_bar import PlayerBar
 from simple_streamer.gui.update_banner import UpdateBanner
 from simple_streamer.gui.audio_visualizer import StereoVisualizer
 from simple_streamer.gui.bbc_now_playing_poller import BbcNowPlayingPoller
+from simple_streamer.gui.audio_glow import AudioGlow
 
 PROGRESS_SAVE_INTERVAL_MS = 10_000
 
@@ -77,6 +79,7 @@ class MainWindow(QMainWindow):
 
         self._store = PresetStore()
         self._episode_progress = EpisodeProgressStore()
+        self._settings = SettingsStore()
         self._background_threads: list[QThread] = []
         self._background_workers: list[_CallableWorker] = []
 
@@ -132,7 +135,17 @@ class MainWindow(QMainWindow):
         central_layout.addWidget(self._update_banner)
         central_layout.addWidget(self._player_bar)
         central_layout.addWidget(self._tabs)
-        self.setCentralWidget(central)
+
+        self._audio_glow = AudioGlow(central)
+        self._audio_glow.set_glow_enabled(self._settings.glow_enabled)
+        self.setCentralWidget(self._audio_glow)
+        self._visualizer.levels_updated.connect(self._audio_glow.update_levels)
+
+        view_menu = self.menuBar().addMenu("View")
+        self._glow_action = view_menu.addAction("Audio Glow")
+        self._glow_action.setCheckable(True)
+        self._glow_action.setChecked(self._settings.glow_enabled)
+        self._glow_action.toggled.connect(self._on_glow_toggled)
 
         self.setStatusBar(QStatusBar())
         self._clock_label = QLabel()
@@ -547,6 +560,10 @@ class MainWindow(QMainWindow):
 
     def _update_clock(self) -> None:
         self._clock_label.setText(datetime.now().strftime("%d %b %Y  %H:%M:%S"))
+
+    def _on_glow_toggled(self, enabled: bool) -> None:
+        self._settings.set_glow_enabled(enabled)
+        self._audio_glow.set_glow_enabled(enabled)
 
     def closeEvent(self, event) -> None:
         self._save_current_progress()
