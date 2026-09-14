@@ -8,6 +8,7 @@ avoids re-solving thread-lifetime/GC pitfalls a second time.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, QSize
@@ -15,15 +16,23 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
+    QHBoxLayout,
     QGridLayout,
     QLabel,
     QPushButton,
     QScrollArea,
     QWidget,
     QDialogButtonBox,
+    QFileDialog,
+    QMessageBox,
 )
 
-from simple_streamer.core.image_search import FetchedImage
+from simple_streamer.core.image_search import (
+    ALLOWED_LOCAL_IMAGE_EXTENSIONS,
+    LOCAL_IMAGE_SPEC_HINT,
+    FetchedImage,
+    validate_local_image,
+)
 
 THUMBNAIL_SIZE = 96
 GRID_COLUMNS = 4
@@ -33,7 +42,7 @@ class ImageSearchDialog(QDialog):
     def __init__(self, query: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"Search for image — {query}")
-        self.setMinimumSize(460, 360)
+        self.setMinimumSize(460, 400)
         self._chosen: Optional[FetchedImage] = None
 
         layout = QVBoxLayout(self)
@@ -46,6 +55,15 @@ class ImageSearchDialog(QDialog):
         self._grid = QGridLayout(self._results_widget)
         scroll.setWidget(self._results_widget)
         layout.addWidget(scroll, stretch=1)
+
+        local_row = QHBoxLayout()
+        local_button = QPushButton("Use Local Image…")
+        local_button.clicked.connect(self._choose_local_file)
+        local_row.addWidget(local_button)
+        hint = QLabel(LOCAL_IMAGE_SPEC_HINT)
+        hint.setStyleSheet("color: gray; font-size: 11px;")
+        local_row.addWidget(hint, stretch=1)
+        layout.addLayout(local_row)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
         buttons.rejected.connect(self.reject)
@@ -85,6 +103,34 @@ class ImageSearchDialog(QDialog):
     def _choose(self, item: FetchedImage) -> None:
         self._chosen = item
         self.accept()
+
+    def _choose_local_file(self) -> None:
+        patterns = " ".join(f"*{ext}" for ext in ALLOWED_LOCAL_IMAGE_EXTENSIONS)
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Choose an image", "", f"Images ({patterns})"
+        )
+        if not filename:
+            return
+
+        path = Path(filename)
+        error = validate_local_image(path)
+        if error:
+            QMessageBox.warning(
+                self, "Can't use that image", f"{error}\n\nSupported: {LOCAL_IMAGE_SPEC_HINT}"
+            )
+            return
+
+        image_bytes = path.read_bytes()
+        pixmap = QPixmap()
+        if not pixmap.loadFromData(image_bytes):
+            QMessageBox.warning(
+                self,
+                "Can't use that image",
+                f"That file didn't load as an image.\n\nSupported: {LOCAL_IMAGE_SPEC_HINT}",
+            )
+            return
+
+        self._choose(FetchedImage(title=path.name, image_bytes=image_bytes, extension=path.suffix.lower()))
 
     def chosen_image(self) -> Optional[FetchedImage]:
         return self._chosen

@@ -26,6 +26,16 @@ REQUEST_TIMEOUT_SECONDS = 6
 MAX_RESULTS = 8
 DEFAULT_IMAGE_EXTENSION = ".png"
 
+# For a user's own local file, picked via "Use Local Image…" — deliberately
+# narrower than what a downloaded image is allowed to be (SVG/ICO included
+# there), since those come from sources we already trust to serve an actual
+# image; a user-picked file gets validated up front instead.
+ALLOWED_LOCAL_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")
+MAX_LOCAL_IMAGE_BYTES = 5 * 1024 * 1024
+LOCAL_IMAGE_SPEC_HINT = (
+    "PNG, JPG, GIF, BMP, or WEBP · under 5 MB · a square image looks best"
+)
+
 
 @dataclass(frozen=True)
 class ImageCandidate:
@@ -115,6 +125,30 @@ class FetchedImage:
     title: str
     image_bytes: bytes
     extension: str
+
+
+def validate_local_image(path: Path) -> Optional[str]:
+    """Return an error message if `path` isn't a usable local image to
+    import, or None if it's fine. Doesn't check the file actually decodes
+    as an image — core has no Qt to check that with — just the cheap,
+    Qt-free checks (extension, size) worth doing before that.
+    """
+    if path.suffix.lower() not in ALLOWED_LOCAL_IMAGE_EXTENSIONS:
+        allowed = ", ".join(ext.lstrip(".").upper() for ext in ALLOWED_LOCAL_IMAGE_EXTENSIONS)
+        return f"Unsupported file type “{path.suffix or path.name}”. Use one of: {allowed}."
+
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return "Couldn't read that file."
+
+    if size > MAX_LOCAL_IMAGE_BYTES:
+        return (
+            f"That file is {size / 1_048_576:.1f} MB — please use an image "
+            f"under {MAX_LOCAL_IMAGE_BYTES // 1_048_576} MB."
+        )
+
+    return None
 
 
 def search_and_fetch(category: str, query: str) -> list[FetchedImage]:

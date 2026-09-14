@@ -1,9 +1,11 @@
 from unittest.mock import patch
 
 from simple_streamer.core.image_search import (
+    MAX_LOCAL_IMAGE_BYTES,
     download_image,
     guess_extension,
     search_images,
+    validate_local_image,
 )
 
 
@@ -89,3 +91,30 @@ def test_guess_extension_from_a_known_suffix():
 def test_guess_extension_defaults_to_png_when_unknown_or_missing():
     assert guess_extension("https://x/logo") == ".png"
     assert guess_extension("https://x/logo.weird") == ".png"
+
+
+def test_validate_local_image_accepts_a_reasonable_png(tmp_path):
+    path = tmp_path / "logo.png"
+    path.write_bytes(b"fake-png-bytes")
+    assert validate_local_image(path) is None
+
+
+def test_validate_local_image_rejects_an_unsupported_extension(tmp_path):
+    path = tmp_path / "logo.tiff"
+    path.write_bytes(b"fake-bytes")
+    error = validate_local_image(path)
+    assert error is not None
+    assert "tiff" in error.lower()
+
+
+def test_validate_local_image_rejects_a_file_over_the_size_cap(tmp_path):
+    path = tmp_path / "logo.png"
+    path.write_bytes(b"x" * (MAX_LOCAL_IMAGE_BYTES + 1))
+    error = validate_local_image(path)
+    assert error is not None
+    assert "MB" in error
+
+
+def test_validate_local_image_rejects_a_missing_file(tmp_path):
+    error = validate_local_image(tmp_path / "does-not-exist.png")
+    assert error is not None
