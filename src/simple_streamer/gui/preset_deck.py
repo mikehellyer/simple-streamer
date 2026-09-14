@@ -1,7 +1,7 @@
 """A single 20-slot preset deck (used for both the Radio tab and the Podcasts tab)."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -78,8 +78,15 @@ class PresetDeckWidget(QWidget):
             button.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
             button.clicked.connect(lambda _checked=False, n=slot.number: self._on_slot_clicked(n))
             button.setContextMenuPolicy(Qt.CustomContextMenu)
+            # Deferred via singleShot rather than opening the (modal) editor
+            # dialog directly in this handler — doing it synchronously here
+            # interferes with Qt's mouse press/release bookkeeping for the
+            # button (the nested dialog event loop runs before Qt finishes
+            # processing the right-click that triggered it), leaving
+            # buttons stuck showing a pressed/hover state and swallowing
+            # later clicks.
             button.customContextMenuRequested.connect(
-                lambda _pos, n=slot.number: self._assign_slot(n)
+                lambda _pos, n=slot.number: QTimer.singleShot(0, lambda: self._assign_slot(n))
             )
             row, col = divmod(slot.number - 1, GRID_COLUMNS)
             self._grid.addWidget(button, row, col)
@@ -137,7 +144,7 @@ class PresetDeckWidget(QWidget):
     def _on_slot_clicked(self, number: int) -> None:
         slot = self._store.slot(self._category, number)
         if slot.is_empty:
-            self._assign_slot(number)
+            QTimer.singleShot(0, lambda: self._assign_slot(number))
             return
         self.slot_activated.emit(self._category, number)
 
