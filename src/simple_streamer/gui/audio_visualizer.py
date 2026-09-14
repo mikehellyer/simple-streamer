@@ -38,6 +38,15 @@ def _segment_color(segment_index: int) -> QColor:
     return GREEN
 
 
+def _blend(off: QColor, on: QColor, t: float) -> QColor:
+    t = max(0.0, min(1.0, t))
+    return QColor(
+        int(off.red() + (on.red() - off.red()) * t),
+        int(off.green() + (on.green() - off.green()) * t),
+        int(off.blue() + (on.blue() - off.blue()) * t),
+    )
+
+
 class StereoVisualizer(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -97,11 +106,26 @@ class StereoVisualizer(QWidget):
         painter.setPen(Qt.NoPen)
         for row_index, channel in enumerate(("left", "right")):
             row_top = margin + row_index * (row_height + gap)
-            lit_counts = np.round(self._display[channel] * SEGMENTS_PER_BAR).astype(int)
+            # Raw (fractional) height rather than a rounded segment count —
+            # otherwise two channels with genuinely different levels often
+            # round to the same whole number of lit segments and the rows
+            # look like duplicates of each other. The boundary segment gets
+            # a brightness blend for its fractional part, so movement (and
+            # the difference between L and R) stays visible continuously
+            # while the bar still reads as discrete LED blocks.
+            raw_heights = self._display[channel] * SEGMENTS_PER_BAR
             for band_index in range(NUM_BANDS):
                 x = margin + band_index * (bar_width + gap)
-                lit = lit_counts[band_index]
+                raw = raw_heights[band_index]
+                full_lit = int(np.floor(raw))
+                partial = raw - full_lit
                 for seg in range(SEGMENTS_PER_BAR):
                     y = row_top + row_height - (seg + 1) * seg_height - seg * seg_gap
-                    painter.setBrush(_segment_color(seg) if seg < lit else SEGMENT_OFF)
+                    if seg < full_lit:
+                        color = _segment_color(seg)
+                    elif seg == full_lit and partial > 0.05:
+                        color = _blend(SEGMENT_OFF, _segment_color(seg), partial)
+                    else:
+                        color = SEGMENT_OFF
+                    painter.setBrush(color)
                     painter.drawRoundedRect(int(x), int(y), int(bar_width), int(seg_height), 1, 1)
