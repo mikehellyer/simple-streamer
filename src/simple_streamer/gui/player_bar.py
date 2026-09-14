@@ -17,6 +17,10 @@ from simple_streamer.core.browser_raise import try_raise_browser_window
 
 class PlayerBar(QFrame):
     stop_requested = Signal()
+    play_pause_requested = Signal()
+    seek_requested = Signal(int)  # milliseconds to jump, negative for back
+
+    SEEK_STEP_MS = 15_000
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -44,10 +48,24 @@ class PlayerBar(QFrame):
         self._website_button.hide()
         top_row.addWidget(self._website_button)
 
+        self._rewind_button = QPushButton("⏪ 15s")
+        self._rewind_button.clicked.connect(lambda: self.seek_requested.emit(-self.SEEK_STEP_MS))
+        top_row.addWidget(self._rewind_button)
+
+        self._play_pause_button = QPushButton("Pause")
+        self._play_pause_button.clicked.connect(self.play_pause_requested)
+        top_row.addWidget(self._play_pause_button)
+
+        self._forward_button = QPushButton("15s ⏩")
+        self._forward_button.clicked.connect(lambda: self.seek_requested.emit(self.SEEK_STEP_MS))
+        top_row.addWidget(self._forward_button)
+
         self._stop_button = QPushButton("Stop")
         self._stop_button.clicked.connect(self.stop_requested)
         top_row.addWidget(self._stop_button)
         outer.addLayout(top_row)
+
+        self.set_active(False)
 
         self._progress = QProgressBar()
         self._progress.setRange(0, 0)  # indeterminate — we don't know how long a lookup takes
@@ -65,6 +83,29 @@ class PlayerBar(QFrame):
     def set_website(self, url: str) -> None:
         self._website_url = url or ""
         self._website_button.setVisible(bool(self._website_url))
+
+    def set_active(self, active: bool) -> None:
+        """Whether anything is currently loaded (playing or paused) —
+        transport controls are meaningless with nothing loaded.
+        """
+        self._play_pause_button.setEnabled(active)
+        self._stop_button.setEnabled(active)
+        if not active:
+            self._rewind_button.setEnabled(False)
+            self._forward_button.setEnabled(False)
+
+    def set_seekable(self, seekable: bool) -> None:
+        """Rewind/fast-forward only make sense for an on-demand podcast
+        episode — a live radio broadcast has nothing to seek into.
+        """
+        self._rewind_button.setVisible(seekable)
+        self._forward_button.setVisible(seekable)
+        if seekable:
+            self._rewind_button.setEnabled(True)
+            self._forward_button.setEnabled(True)
+
+    def set_playing(self, playing: bool) -> None:
+        self._play_pause_button.setText("Pause" if playing else "Play")
 
     def _open_website(self) -> None:
         if self._website_url:

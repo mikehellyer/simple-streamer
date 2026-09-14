@@ -112,6 +112,8 @@ class MainWindow(QMainWindow):
 
         self._player_bar = PlayerBar()
         self._player_bar.stop_requested.connect(self._stop_playback)
+        self._player_bar.play_pause_requested.connect(self._toggle_play_pause)
+        self._player_bar.seek_requested.connect(self._seek)
 
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -261,6 +263,14 @@ class MainWindow(QMainWindow):
         self._player.setSource(QUrl(url))
         self._player.play()
         self._player_bar.set_now_playing(f"Tuning in: {label}…")
+        self._player_bar.set_active(True)
+        # A podcast episode is an on-demand file — fully seekable. A radio
+        # stream is live: there's nothing ahead to fast-forward into, and
+        # none of our icecast/shoutcast stations support seeking back
+        # either (an HLS one like BBC might keep a short live buffer, but
+        # that's inconsistent enough across stations to be worse than no
+        # rewind/forward controls at all).
+        self._player_bar.set_seekable(category == "podcasts")
         if category == "radio":
             bbc_service_id = bbc_service_id_from_url(url)
             if bbc_service_id:
@@ -312,20 +322,39 @@ class MainWindow(QMainWindow):
             self._player_bar.set_now_playing("Nothing playing")
             self._player_bar.set_loading(False)
             self._player_bar.set_website("")
+            self._player_bar.set_active(False)
         self._active_number = None
+
+    def _toggle_play_pause(self) -> None:
+        if self._active_number is None:
+            return
+        if self._player.playbackState() == QMediaPlayer.PlayingState:
+            self._player.pause()
+        else:
+            self._player.play()
+
+    def _seek(self, delta_ms: int) -> None:
+        if self._active_number is None:
+            return
+        new_position = max(0, self._player.position() + delta_ms)
+        duration = self._player.duration()
+        if duration > 0:
+            new_position = min(new_position, duration)
+        self._player.setPosition(new_position)
 
     def _on_playback_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
         if self._active_number is None:
             return
+        self._player_bar.set_playing(state == QMediaPlayer.PlayingState)
         if state == QMediaPlayer.PlayingState:
             self._player_bar.set_loading(False)
             self._refresh_now_playing()
-        # StoppedState is deliberately not handled here: it fires for many
-        # reasons (user stop, a failed source, switching to the next
-        # fallback candidate) and _stop_playback()/_on_player_error()
-        # already set the right message for the cases that matter — an
-        # unconditional "Nothing playing" here could overwrite a fallback
-        # attempt that's already under way.
+        # StoppedState is otherwise deliberately not handled here: it
+        # fires for many reasons (user stop, a failed source, switching
+        # to the next fallback candidate) and _stop_playback()/
+        # _on_player_error() already set the right message for the cases
+        # that matter — an unconditional "Nothing playing" here could
+        # overwrite a fallback attempt that's already under way.
 
     def _on_player_error(self, error, error_string: str) -> None:
         if self._active_number is None:
