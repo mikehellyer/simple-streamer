@@ -12,6 +12,7 @@ dependencies = [
     "PySide6",
     "platformdirs",
     "certifi",
+    "numpy",
 ]
 
 [project.scripts]

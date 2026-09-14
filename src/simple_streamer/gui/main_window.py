@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 
 from PySide6.QtCore import QUrl, Qt, QObject, QThread, Signal, QTimer
 from PySide6.QtGui import QKeyEvent, QIcon, QPixmap
-from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QAudioBufferOutput
 from PySide6.QtWidgets import (
     QMainWindow,
     QTabWidget,
@@ -30,6 +30,7 @@ from simple_streamer.core.self_update import (
 from simple_streamer.gui.preset_deck import PresetDeckWidget
 from simple_streamer.gui.player_bar import PlayerBar
 from simple_streamer.gui.update_banner import UpdateBanner
+from simple_streamer.gui.audio_visualizer import StereoVisualizer
 
 UPDATE_OWNER = "mikehellyer"
 UPDATE_REPO = "simple-streamer"
@@ -76,6 +77,11 @@ class MainWindow(QMainWindow):
         self._player.playbackStateChanged.connect(self._on_playback_state_changed)
         self._player.errorOccurred.connect(self._on_player_error)
 
+        self._visualizer = StereoVisualizer()
+        self._audio_buffer_output = QAudioBufferOutput()
+        self._player.setAudioBufferOutput(self._audio_buffer_output)
+        self._audio_buffer_output.audioBufferReceived.connect(self._visualizer.feed_buffer)
+
         self._tabs = QTabWidget()
         self._decks: dict[str, PresetDeckWidget] = {}
         for category, title in (("radio", "Radio"), ("podcasts", "Podcasts")):
@@ -97,7 +103,7 @@ class MainWindow(QMainWindow):
         wordmark = QLabel("Simple-Streamer")
         wordmark.setStyleSheet("font-size: 18px; font-weight: 700;")
         header_layout.addWidget(wordmark)
-        header_layout.addStretch(1)
+        header_layout.addWidget(self._visualizer, stretch=1)
 
         self._update_banner = UpdateBanner()
         self._update_banner.update_clicked.connect(self._start_update)
@@ -162,6 +168,7 @@ class MainWindow(QMainWindow):
 
         self._stop_icy_listener()
         self._now_playing_detail = None
+        self._visualizer.clear()
         self._active_category = category
         self._active_number = number
         self._player_bar.set_loading(True)
@@ -233,6 +240,7 @@ class MainWindow(QMainWindow):
         self._player.stop()
         self._stop_icy_listener()
         self._now_playing_detail = None
+        self._visualizer.clear()
         if self._active_number is not None:
             self._player_bar.set_now_playing("Nothing playing")
             self._player_bar.set_loading(False)
@@ -250,12 +258,14 @@ class MainWindow(QMainWindow):
         elif state == QMediaPlayer.StoppedState:
             self._player_bar.set_loading(False)
             self._player_bar.set_now_playing("Nothing playing")
+            self._visualizer.clear()
 
     def _on_player_error(self, error, error_string: str) -> None:
         if self._active_number is None:
             return
         self._player_bar.set_loading(False)
         self._player_bar.set_now_playing(f"Couldn't play that stream: {error_string}")
+        self._visualizer.clear()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key_F1 and not event.isAutoRepeat():
