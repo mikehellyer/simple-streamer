@@ -44,6 +44,18 @@ class EpisodeListDialog(QDialog):
 
         self._list = QListWidget()
         self._list.setWordWrap(True)
+        # A divider line and padding between entries — without it, each
+        # episode's title/metadata ran straight into the next with only
+        # a sliver of default list spacing, hard to tell apart at a
+        # glance. The :selected rule is required, not decorative: once
+        # ::item is styled at all, Qt stops applying the platform's own
+        # selected-row background/text-color pairing, and the row we
+        # pre-select below (setCurrentRow(0)) rendered with invisible
+        # text — same color as its background — until this was added.
+        self._list.setStyleSheet(
+            "QListWidget::item { border-bottom: 1px solid rgba(0, 0, 0, 0.15); padding: 8px 4px; }"
+            "QListWidget::item:selected { background-color: #3874d8; color: white; }"
+        )
         self._list.itemSelectionChanged.connect(self._on_selection_changed)
         self._list.itemDoubleClicked.connect(lambda _item: self._play_selected())
         layout.addWidget(self._list, stretch=1)
