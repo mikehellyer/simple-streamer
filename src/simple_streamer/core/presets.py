@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Optional
 
@@ -47,6 +47,10 @@ class PresetSlot:
     number: int
     label: str = ""
     url: str = ""
+    website: str = ""
+    # Tried in order, after `url`, if the main stream/feed fails to load —
+    # see MainWindow's playback-attempt queue in gui/main_window.py.
+    fallback_urls: list[str] = field(default_factory=list)
 
     @property
     def is_empty(self) -> bool:
@@ -100,8 +104,22 @@ class PresetStore:
     def slot(self, category: str, number: int) -> PresetSlot:
         return self._decks[category][number - 1]
 
-    def assign(self, category: str, number: int, label: str, url: str) -> None:
-        self._decks[category][number - 1] = PresetSlot(number=number, label=label, url=url)
+    def assign(
+        self,
+        category: str,
+        number: int,
+        label: str,
+        url: str,
+        website: str = "",
+        fallback_urls: Optional[list[str]] = None,
+    ) -> None:
+        self._decks[category][number - 1] = PresetSlot(
+            number=number,
+            label=label,
+            url=url,
+            website=website,
+            fallback_urls=list(fallback_urls) if fallback_urls else [],
+        )
 
     def clear(self, category: str, number: int) -> None:
         self._decks[category][number - 1] = PresetSlot(number=number)
@@ -121,6 +139,8 @@ class PresetStore:
                         number=number,
                         label=raw.get("label", ""),
                         url=raw.get("url", ""),
+                        website=raw.get("website", ""),
+                        fallback_urls=list(raw.get("fallback_urls", [])),
                     )
 
     def save(self) -> None:

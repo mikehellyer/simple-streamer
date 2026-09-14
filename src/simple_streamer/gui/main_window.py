@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from simple_streamer import __version__
-from simple_streamer.core.presets import PresetStore, PresetSlot
+from simple_streamer.core.presets import PresetStore
 from simple_streamer.core.podcasts import latest_episode
 from simple_streamer.core.pls_resolver import resolve_pls
 from simple_streamer.core.icy_metadata import IcyMetadataListener
@@ -126,6 +126,12 @@ class MainWindow(QMainWindow):
         self._active_category = "radio"
         self._active_number: int | None = None
         self._now_playing_detail: str | None = None
+        # A "play" bumps this; any resolve/error callback that arrives after
+        # a newer play or an explicit stop checks its own captured attempt
+        # number against this and quietly no-ops if it's stale.
+        self._playback_attempt = 0
+        self._remaining_candidates: list[str] = []
+        self._current_attempt_for_player = -1
         self._icy_listener: IcyMetadataListener | None = None
         self._icy_bridge = _IcySignalBridge()
         self._icy_bridge.title_changed.connect(self._on_icy_title)
@@ -171,46 +177,65 @@ class MainWindow(QMainWindow):
         self._visualizer.clear()
         self._active_category = category
         self._active_number = number
+        self._playback_attempt += 1
         self._player_bar.set_loading(True)
+        self._remaining_candidates = [slot.url] + [u for u in slot.fallback_urls if u]
+        self._try_next_candidate(self._playback_attempt)
+
+    def _try_next_candidate(self, attempt: int) -> None:
+        if attempt != self._playback_attempt:
+            return  # superseded by a newer play or an explicit stop
+
+        if not self._remaining_candidates:
+            slot = self._store.slot(self._active_category, self._active_number)
+            self._player_bar.set_now_playing(f"Couldn't play {slot.label} — no working source")
+            self._player_bar.set_loading(False)
+            self._visualizer.clear()
+            return
+
+        url = self._remaining_candidates.pop(0)
+        category = self._active_category
+        slot = self._store.slot(category, self._active_number)
 
         if category == "podcasts":
             self._player_bar.set_now_playing(f"Finding the latest episode of {slot.label}…")
             self._run_in_background(
-                lambda: latest_episode(slot.url),
-                lambda episode: self._on_episode_resolved(slot, episode),
+                lambda: latest_episode(url),
+                lambda episode: self._on_episode_resolved(attempt, episode),
             )
-        elif urlparse(slot.url).path.endswith(".pls"):
+        elif urlparse(url).path.endswith(".pls"):
             # A handful of stations (Planet Rock) hand out a .pls redirector
             # with a short-lived signed URL inside instead of a stable
             # stream link, so it has to be re-resolved on every play.
             self._player_bar.set_now_playing(f"Tuning in: {slot.label}…")
             self._run_in_background(
-                lambda: resolve_pls(slot.url),
-                lambda resolved_url: self._on_pls_resolved(category, slot, resolved_url),
+                lambda: resolve_pls(url),
+                lambda resolved_url: self._on_pls_resolved(attempt, resolved_url),
             )
         else:
-            self._start_playback(category, slot.url, slot.label)
+            self._start_playback(category, url, slot.label, attempt)
 
-    def _on_episode_resolved(self, slot: PresetSlot, episode) -> None:
-        if self._active_category != "podcasts" or self._active_number != slot.number:
+    def _on_episode_resolved(self, attempt: int, episode) -> None:
+        if attempt != self._playback_attempt:
             return  # the user moved on to something else while this was loading
         if episode is None:
-            self._player_bar.set_now_playing(f"Couldn't load {slot.label} right now")
-            self._player_bar.set_loading(False)
+            self._try_next_candidate(attempt)
             return
         self._now_playing_detail = episode.title
-        self._start_playback("podcasts", episode.audio_url, slot.label)
+        slot = self._store.slot(self._active_category, self._active_number)
+        self._start_playback("podcasts", episode.audio_url, slot.label, attempt)
 
-    def _on_pls_resolved(self, category: str, slot: PresetSlot, resolved_url: str | None) -> None:
-        if self._active_category != category or self._active_number != slot.number:
+    def _on_pls_resolved(self, attempt: int, resolved_url: str | None) -> None:
+        if attempt != self._playback_attempt:
             return  # the user moved on to something else while this was loading
         if resolved_url is None:
-            self._player_bar.set_now_playing(f"Couldn't load {slot.label} right now")
-            self._player_bar.set_loading(False)
+            self._try_next_candidate(attempt)
             return
-        self._start_playback(category, resolved_url, slot.label)
+        slot = self._store.slot(self._active_category, self._active_number)
+        self._start_playback(self._active_category, resolved_url, slot.label, attempt)
 
-    def _start_playback(self, category: str, url: str, label: str) -> None:
+    def _start_playback(self, category: str, url: str, label: str, attempt: int) -> None:
+        self._current_attempt_for_player = attempt
         self._player.setSource(QUrl(url))
         self._player.play()
         self._player_bar.set_now_playing(f"Tuning in: {label}…")
@@ -241,12 +266,15 @@ class MainWindow(QMainWindow):
         self._stop_icy_listener()
         self._now_playing_detail = None
         self._visualizer.clear()
+        # Bumping this invalidates any resolve/error callback still in
+        # flight for the old attempt (see the guards in each), so it won't
+        # start playing — or try a fallback — after the user asked for
+        # silence.
+        self._playback_attempt += 1
+        self._remaining_candidates = []
         if self._active_number is not None:
             self._player_bar.set_now_playing("Nothing playing")
             self._player_bar.set_loading(False)
-        # Clearing this also invalidates any podcast/pls resolution still in
-        # flight (see the guards above), so it won't start playing
-        # something after the user asked for silence.
         self._active_number = None
 
     def _on_playback_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
@@ -255,17 +283,25 @@ class MainWindow(QMainWindow):
         if state == QMediaPlayer.PlayingState:
             self._player_bar.set_loading(False)
             self._refresh_now_playing()
-        elif state == QMediaPlayer.StoppedState:
-            self._player_bar.set_loading(False)
-            self._player_bar.set_now_playing("Nothing playing")
-            self._visualizer.clear()
+        # StoppedState is deliberately not handled here: it fires for many
+        # reasons (user stop, a failed source, switching to the next
+        # fallback candidate) and _stop_playback()/_on_player_error()
+        # already set the right message for the cases that matter — an
+        # unconditional "Nothing playing" here could overwrite a fallback
+        # attempt that's already under way.
 
     def _on_player_error(self, error, error_string: str) -> None:
         if self._active_number is None:
             return
-        self._player_bar.set_loading(False)
-        self._player_bar.set_now_playing(f"Couldn't play that stream: {error_string}")
+        if self._current_attempt_for_player != self._playback_attempt:
+            return  # a stale error from a source we've already moved on from
         self._visualizer.clear()
+        if self._remaining_candidates:
+            self._try_next_candidate(self._playback_attempt)
+        else:
+            slot = self._store.slot(self._active_category, self._active_number)
+            self._player_bar.set_loading(False)
+            self._player_bar.set_now_playing(f"Couldn't play {slot.label} — no working source")
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key_F1 and not event.isAutoRepeat():

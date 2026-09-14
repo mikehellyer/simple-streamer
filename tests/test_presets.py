@@ -21,6 +21,51 @@ def test_assign_and_retrieve_slot(tmp_path):
     assert not slot.is_empty
 
 
+def test_new_slot_has_no_website_or_fallbacks_by_default(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+    slot = store.slot("radio", 1)
+    assert slot.website == ""
+    assert slot.fallback_urls == []
+
+
+def test_assign_with_website_and_fallback_urls(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+    store.assign(
+        "radio",
+        2,
+        "BBC Radio 6",
+        "https://stream.example/bbc6-primary",
+        website="https://bbc.co.uk/6music",
+        fallback_urls=["https://stream.example/bbc6-alt1", "https://stream.example/bbc6-alt2"],
+    )
+
+    slot = store.slot("radio", 2)
+    assert slot.website == "https://bbc.co.uk/6music"
+    assert slot.fallback_urls == [
+        "https://stream.example/bbc6-alt1",
+        "https://stream.example/bbc6-alt2",
+    ]
+
+
+def test_website_and_fallbacks_round_trip_through_save_and_reload(tmp_path):
+    config_path = tmp_path / "presets.json"
+    store = PresetStore(config_path=config_path)
+    store.assign(
+        "podcasts",
+        4,
+        "Darknet Diaries",
+        "https://feed.example/dd.rss",
+        website="https://darknetdiaries.com",
+        fallback_urls=["https://feed.example/dd-mirror.rss"],
+    )
+    store.save()
+
+    reloaded = PresetStore(config_path=config_path)
+    slot = reloaded.slot("podcasts", 4)
+    assert slot.website == "https://darknetdiaries.com"
+    assert slot.fallback_urls == ["https://feed.example/dd-mirror.rss"]
+
+
 def test_categories_are_independent(tmp_path):
     store = PresetStore(config_path=tmp_path / "presets.json")
     store.assign("radio", 1, "Radio Paradise", "https://stream.example/rp")

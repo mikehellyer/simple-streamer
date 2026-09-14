@@ -8,13 +8,14 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QLabel,
     QPushButton,
-    QInputDialog,
     QFrame,
     QSizePolicy,
+    QDialog,
 )
 
 from simple_streamer.core.presets import PresetStore
 from simple_streamer.core.text import shorten, PRESET_BUTTON_LABEL_MAX_CHARS
+from simple_streamer.gui.preset_editor import PresetEditorDialog, CLEARED
 
 GRID_COLUMNS = 5
 
@@ -117,7 +118,8 @@ class PresetDeckWidget(QWidget):
             button = self._buttons[slot.number]
             if slot.label:
                 button.setText(f"{slot.number}\n{shorten(slot.label, PRESET_BUTTON_LABEL_MAX_CHARS)}")
-                button.setToolTip(slot.label)
+                tooltip = f"{slot.label}\n{slot.website}" if slot.website else slot.label
+                button.setToolTip(tooltip)
             else:
                 button.setText(str(slot.number))
                 button.setToolTip("")
@@ -141,13 +143,13 @@ class PresetDeckWidget(QWidget):
 
     def _assign_slot(self, number: int) -> None:
         slot = self._store.slot(self._category, number)
-        label, ok = QInputDialog.getText(self, "Assign preset", "Name:", text=slot.label)
-        if not ok or not label:
+        dialog = PresetEditorDialog(self._category, slot, parent=self)
+        result_code = dialog.exec()
+        if result_code == CLEARED:
+            self._store.clear(self._category, number)
+        elif result_code == QDialog.Accepted:
+            self._store.assign(self._category, number, **dialog.result_data())
+        else:
             return
-        url_prompt = "Podcast RSS feed URL:" if self._category == "podcasts" else "Stream URL:"
-        url, ok = QInputDialog.getText(self, "Assign preset", url_prompt, text=slot.url)
-        if not ok or not url:
-            return
-        self._store.assign(self._category, number, label, url)
         self._store.save()
         self.refresh_labels()
