@@ -71,7 +71,18 @@ def launch_installer(path: Path) -> Optional[subprocess.Popen]:
         os.startfile(path)
         return None
     elif sys.platform == "darwin":
-        return subprocess.Popen(["open", path])
+        process = subprocess.Popen(["open", path])
+        # `open` on a .dmg mounts it and opens a Finder window for it,
+        # but that window doesn't reliably become frontmost on its own —
+        # Finder can stay in the background, which (right before this
+        # app quits a moment later) looks exactly like clicking Update
+        # did nothing. Nudging Finder forward is harmless if it's
+        # already there, and costs nothing if this fails.
+        try:
+            subprocess.Popen(["open", "-a", "Finder"])
+        except OSError:
+            pass
+        return process
     else:
         # Handing a local .deb of an already-installed package to a
         # desktop "Software" GUI via xdg-open is unreliable across

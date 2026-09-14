@@ -398,13 +398,32 @@ class MainWindow(QMainWindow):
             # fallback) to actually finish before quitting — quitting
             # immediately can kill its password prompt before it's
             # answered, since the desktop session ties a launched app's
-            # child processes to its own lifetime.
-            self._run_in_background(process.wait, self._on_installer_finished)
+            # child processes to its own lifetime. Bundling path into the
+            # tuple fn returns (rather than a lambda around the bound
+            # on_finished method) keeps on_finished a genuine bound
+            # method, which _run_in_background's Qt.QueuedConnection
+            # needs to marshal onto the main thread correctly.
+            self._run_in_background(
+                lambda: (path, process.wait()),
+                self._on_installer_finished,
+            )
         else:
             QTimer.singleShot(1500, self.close)
 
-    def _on_installer_finished(self, _returncode) -> None:
-        self.close()
+    def _on_installer_finished(self, result) -> None:
+        path, returncode = result
+        if returncode == 0:
+            self.close()
+            return
+        # pkexec/apt didn't actually succeed — a cancelled password
+        # prompt, no polkit agent running on this desktop, wrong
+        # password, etc. Quitting anyway here is exactly the bug this
+        # replaces: it looked like clicking Update did nothing.
+        self._update_banner.set_status(
+            f"Update didn't install (exit code {returncode}) — "
+            f"you can install it manually: {path}"
+        )
+        self._update_banner.set_busy(False)
 
     def _update_clock(self) -> None:
         self._clock_label.setText(datetime.now().strftime("%d %b %Y  %H:%M:%S"))

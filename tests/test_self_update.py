@@ -94,8 +94,26 @@ def test_launch_installer_macos_uses_open():
     ) as mock_popen:
         result = launch_installer("/tmp/Simple-Streamer.dmg")
 
-    mock_popen.assert_called_once_with(["open", "/tmp/Simple-Streamer.dmg"])
+    # `open` mounts the dmg and opens a Finder window for it, but that
+    # window doesn't reliably come to the front on its own — right
+    # before this app quits, that looks exactly like nothing happened.
+    assert mock_popen.call_args_list[0].args[0] == ["open", "/tmp/Simple-Streamer.dmg"]
+    assert mock_popen.call_args_list[1].args[0] == ["open", "-a", "Finder"]
     assert result is mock_popen.return_value
+
+
+def test_launch_installer_macos_still_returns_the_process_if_raising_finder_fails():
+    def fake_popen(args, **kwargs):
+        if args == ["open", "-a", "Finder"]:
+            raise OSError("no Finder?")
+        return "mock-dmg-process"
+
+    with patch("simple_streamer.core.self_update.sys.platform", "darwin"), patch(
+        "simple_streamer.core.self_update.subprocess.Popen", side_effect=fake_popen
+    ):
+        result = launch_installer("/tmp/Simple-Streamer.dmg")
+
+    assert result == "mock-dmg-process"
 
 
 def test_launch_installer_windows_uses_startfile():
