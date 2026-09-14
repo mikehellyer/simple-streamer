@@ -11,21 +11,48 @@ from platformdirs import user_config_dir
 SLOTS_PER_DECK = 20
 CATEGORIES = ("radio", "podcasts")
 
+@dataclass(frozen=True)
+class DefaultPreset:
+    label: str
+    url: str
+    website: str = ""
+    # Tried in order, after `url`, if the main stream/feed fails.
+    fallback_urls: tuple[str, ...] = ()
+
+
 # Seeded into a fresh preset store (first run, no saved presets.json yet).
 # Radio entries are direct live-stream URLs (a .pls entry is a redirector
 # with a short-lived signed URL inside, re-resolved at play time — see
 # core/pls_resolver.py); podcast entries are RSS feed URLs, resolved to the
-# latest episode at play time (see core/podcasts.py). An entry may include
-# a third element, a list of fallback URLs tried in order if the main one
-# fails.
-DEFAULT_PRESETS: dict[str, list[tuple]] = {
+# latest episode at play time (see core/podcasts.py).
+DEFAULT_PRESETS: dict[str, list[DefaultPreset]] = {
     "radio": [
-        ("BBC Radio 1", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_one&bitrate=320000"),
-        ("BBC Radio 2", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_two&bitrate=320000"),
-        ("BBC Radio 3", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_three&bitrate=320000"),
-        ("BBC Radio 4", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_fourfm&bitrate=320000"),
-        ("BBC Radio 5 Live", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=320000"),
-        (
+        DefaultPreset(
+            "BBC Radio 1",
+            "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_one&bitrate=320000",
+            website="https://www.bbc.co.uk/radio1",
+        ),
+        DefaultPreset(
+            "BBC Radio 2",
+            "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_two&bitrate=320000",
+            website="https://www.bbc.co.uk/radio2",
+        ),
+        DefaultPreset(
+            "BBC Radio 3",
+            "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_three&bitrate=320000",
+            website="https://www.bbc.co.uk/radio3",
+        ),
+        DefaultPreset(
+            "BBC Radio 4",
+            "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_fourfm&bitrate=320000",
+            website="https://www.bbc.co.uk/radio4",
+        ),
+        DefaultPreset(
+            "BBC Radio 5 Live",
+            "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=320000",
+            website="https://www.bbc.co.uk/5live",
+        ),
+        DefaultPreset(
             "BBC Radio 5 Live Sports Extra",
             # The lsn.lv resolver's mapping for this one is stale — it
             # points at the worldwide CDN pool, which 403s for this
@@ -34,22 +61,73 @@ DEFAULT_PRESETS: dict[str, list[tuple]] = {
             # rotates and the direct URL below goes stale before this
             # does.
             "http://as-hls-uk-live.akamaized.net/pool_47700285/live/uk/bbc_radio_five_live_sports_extra/bbc_radio_five_live_sports_extra.isml/bbc_radio_five_live_sports_extra-audio%3d320000.norewind.m3u8",
-            ["https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live_sports_extra&bitrate=320000"],
+            website="https://www.bbc.co.uk/sounds/play/live:bbc_radio_five_live_sports_extra",
+            fallback_urls=(
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live_sports_extra&bitrate=320000",
+            ),
         ),
-        ("BBC Radio Scotland", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_scotland_fm&bitrate=320000"),
-        ("talkSPORT", "http://talksport.live.stream.broadcasting.news/stream-mp3?ref=RF"),
-        ("talkSPORT 2", "http://talksport.live.stream.broadcasting.news/stream2-mp3?ref=RF"),
-        ("LBC", "http://icecast.thisisdax.com/LBCUKMP3"),
-        ("Planet Rock", "http://www.radiofeeds.net/playlists/bauerflash.pls?station=planetrock-mp3"),
-        ("Manx Radio FM", "http://listen-manxradio.sharp-stream.com/manxradiofm.mp3?ref=RF"),
-        ("Sportsnet 590 The Fan", "https://rogers-hls.leanstream.co/rogers/tor590.stream/icy"),
+        DefaultPreset(
+            "BBC Radio Scotland",
+            "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_scotland_fm&bitrate=320000",
+            website="https://www.bbc.co.uk/radioscotland",
+        ),
+        DefaultPreset(
+            "talkSPORT",
+            "http://talksport.live.stream.broadcasting.news/stream-mp3?ref=RF",
+            website="https://talksport.com",
+        ),
+        DefaultPreset(
+            "talkSPORT 2",
+            "http://talksport.live.stream.broadcasting.news/stream2-mp3?ref=RF",
+            website="https://talksport.com/play/talksport2",
+        ),
+        DefaultPreset(
+            "LBC",
+            "http://icecast.thisisdax.com/LBCUKMP3",
+            website="https://www.lbc.co.uk",
+        ),
+        DefaultPreset(
+            "Planet Rock",
+            "http://www.radiofeeds.net/playlists/bauerflash.pls?station=planetrock-mp3",
+            website="https://planetrock.com",
+        ),
+        DefaultPreset(
+            "Manx Radio FM",
+            "http://listen-manxradio.sharp-stream.com/manxradiofm.mp3?ref=RF",
+            website="https://www.manxradio.com",
+        ),
+        DefaultPreset(
+            "Sportsnet 590 The Fan",
+            "https://rogers-hls.leanstream.co/rogers/tor590.stream/icy",
+            website="https://www.sportsnet.ca/590/",
+        ),
     ],
     "podcasts": [
-        ("The Diary Of A CEO", "https://rss2.flightcast.com/xmsftuzjjykcmqwolaqn6mdn"),
-        ("The Rock and Roll Geek Show", "https://www.americanheartbreak.com/rnrgeekwp/?feed=podcast"),
-        ("This Week in Retro", "https://feed.podbean.com/TWIR/feed.xml"),
-        ("The Retro Hour", "https://audioboom.com/channels/4970769.rss"),
-        ("Rees Rambles", "https://anchor.fm/s/7c6f7b84/podcast/rss"),
+        DefaultPreset(
+            "The Diary Of A CEO",
+            "https://rss2.flightcast.com/xmsftuzjjykcmqwolaqn6mdn",
+            website="https://www.diaryofaceo.co.uk",
+        ),
+        DefaultPreset(
+            "The Rock and Roll Geek Show",
+            "https://www.americanheartbreak.com/rnrgeekwp/?feed=podcast",
+            website="https://www.americanheartbreak.com/rnrgeekwp/",
+        ),
+        DefaultPreset(
+            "This Week in Retro",
+            "https://feed.podbean.com/TWIR/feed.xml",
+            website="https://thisweekinretro.com",
+        ),
+        DefaultPreset(
+            "The Retro Hour",
+            "https://audioboom.com/channels/4970769.rss",
+            website="https://theretrohour.com",
+        ),
+        DefaultPreset(
+            "Rees Rambles",
+            "https://anchor.fm/s/7c6f7b84/podcast/rss",
+            website="https://ctrl-alt-rees.com/rambles.html",
+        ),
     ],
 }
 
@@ -90,6 +168,7 @@ class PresetStore:
         if self._config_path.exists():
             self.load()
         self._fill_empty_slots_from_defaults()
+        self._backfill_new_default_fields()
         self.save()
 
     def _fill_empty_slots_from_defaults(self) -> None:
@@ -103,10 +182,34 @@ class PresetStore:
         """
         for category, entries in DEFAULT_PRESETS.items():
             for number, entry in enumerate(entries, start=1):
-                label, url = entry[0], entry[1]
-                fallback_urls = entry[2] if len(entry) > 2 else None
                 if self.slot(category, number).is_empty:
-                    self.assign(category, number, label, url, fallback_urls=fallback_urls)
+                    self.assign(
+                        category,
+                        number,
+                        entry.label,
+                        entry.url,
+                        website=entry.website,
+                        fallback_urls=list(entry.fallback_urls),
+                    )
+
+    def _backfill_new_default_fields(self) -> None:
+        """Add a website/fallback URLs to an already-assigned slot that's
+        missing them, if the current default for that slot still has them
+        and the slot's label matches — i.e. it looks like the same default
+        the user hasn't customized away from. This is how a website or
+        fallback URL added to DEFAULT_PRESETS after a slot was already
+        assigned by an earlier version reaches an existing install, without
+        touching a label/url the user did customize.
+        """
+        for category, entries in DEFAULT_PRESETS.items():
+            for number, entry in enumerate(entries, start=1):
+                slot = self.slot(category, number)
+                if slot.is_empty or slot.label != entry.label:
+                    continue
+                if not slot.website and entry.website:
+                    slot.website = entry.website
+                if not slot.fallback_urls and entry.fallback_urls:
+                    slot.fallback_urls = list(entry.fallback_urls)
 
     @staticmethod
     def _default_config_path() -> Path:

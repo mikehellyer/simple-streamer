@@ -109,12 +109,11 @@ def test_real_first_run_seeds_the_starter_presets(tmp_path, monkeypatch):
 
     for category, entries in DEFAULT_PRESETS.items():
         for number, entry in enumerate(entries, start=1):
-            label, url = entry[0], entry[1]
             slot = store.slot(category, number)
-            assert slot.label == label
-            assert slot.url == url
-            if len(entry) > 2:
-                assert slot.fallback_urls == entry[2]
+            assert slot.label == entry.label
+            assert slot.url == entry.url
+            assert slot.website == entry.website
+            assert slot.fallback_urls == list(entry.fallback_urls)
     assert target.exists()
 
 
@@ -133,6 +132,37 @@ def test_a_new_default_reaches_a_machine_with_an_older_saved_file(tmp_path, monk
     # The user's existing assignment is untouched...
     assert store.slot("podcasts", 1).url == "https://old.example/feed.xml"
     # ...but a default added after that file was written now fills in.
-    label, url = DEFAULT_PRESETS["podcasts"][4]
-    assert store.slot("podcasts", 5).label == label
-    assert store.slot("podcasts", 5).url == url
+    entry = DEFAULT_PRESETS["podcasts"][4]
+    assert store.slot("podcasts", 5).label == entry.label
+    assert store.slot("podcasts", 5).url == entry.url
+
+
+def test_a_website_added_later_backfills_onto_an_already_assigned_slot(tmp_path, monkeypatch):
+    # Simulate an install from before `website` existed on DEFAULT_PRESETS:
+    # the slot is already assigned (same label/url as today's default) but
+    # has no website, since the saved file predates that field.
+    target = tmp_path / "presets.json"
+    monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
+    entry = DEFAULT_PRESETS["radio"][0]
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck[0] = {"number": 1, "label": entry.label, "url": entry.url}
+    target.write_text(json.dumps({"radio": old_deck, "podcasts": []}))
+
+    store = PresetStore()
+
+    assert store.slot("radio", 1).website == entry.website
+
+
+def test_website_backfill_skips_a_slot_the_user_repurposed(tmp_path, monkeypatch):
+    # Same slot number/category as a default, but a different label — the
+    # user has clearly pointed this slot at something else, so it must not
+    # get the default's website attached to it.
+    target = tmp_path / "presets.json"
+    monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck[0] = {"number": 1, "label": "My Own Station", "url": "https://mine.example/stream"}
+    target.write_text(json.dumps({"radio": old_deck, "podcasts": []}))
+
+    store = PresetStore()
+
+    assert store.slot("radio", 1).website == ""

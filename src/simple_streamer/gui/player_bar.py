@@ -8,7 +8,8 @@ box so it reads as a separate element from the tabs below it.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Signal, Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar
 
 
@@ -35,6 +36,12 @@ class PlayerBar(QFrame):
         self._now_playing.setStyleSheet("font-size: 16px; font-weight: 600;")
         top_row.addWidget(self._now_playing, stretch=1)
 
+        self._website_url = ""
+        self._website_button = QPushButton("Website")
+        self._website_button.clicked.connect(self._open_website)
+        self._website_button.hide()
+        top_row.addWidget(self._website_button)
+
         self._stop_button = QPushButton("Stop")
         self._stop_button.clicked.connect(self.stop_requested)
         top_row.addWidget(self._stop_button)
@@ -52,3 +59,11 @@ class PlayerBar(QFrame):
 
     def set_loading(self, loading: bool) -> None:
         self._progress.setVisible(loading)
+
+    def set_website(self, url: str) -> None:
+        self._website_url = url or ""
+        self._website_button.setVisible(bool(self._website_url))
+
+    def _open_website(self) -> None:
+        if self._website_url:
+            QDesktopServices.openUrl(QUrl(self._website_url))

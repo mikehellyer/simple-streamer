@@ -183,6 +183,7 @@ class MainWindow(QMainWindow):
         self._active_number = number
         self._playback_attempt += 1
         self._player_bar.set_loading(True)
+        self._player_bar.set_website(slot.website)
         self._remaining_candidates = [slot.url] + [u for u in slot.fallback_urls if u]
         self._try_next_candidate(self._playback_attempt)
 
@@ -293,6 +294,7 @@ class MainWindow(QMainWindow):
         if self._active_number is not None:
             self._player_bar.set_now_playing("Nothing playing")
             self._player_bar.set_loading(False)
+            self._player_bar.set_website("")
         self._active_number = None
 
     def _on_playback_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
