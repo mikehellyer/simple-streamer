@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from simple_streamer import __version__
 from simple_streamer.core.presets import PresetStore
 from simple_streamer.core.podcasts import latest_episode
+from simple_streamer.core.episode_progress import EpisodeProgressStore
 from simple_streamer.core.pls_resolver import resolve_pls
 from simple_streamer.core.icy_metadata import IcyMetadataListener
 from simple_streamer.core.bbc_nowplaying import bbc_service_id_from_url
@@ -35,6 +36,8 @@ from simple_streamer.gui.player_bar import PlayerBar
 from simple_streamer.gui.update_banner import UpdateBanner
 from simple_streamer.gui.audio_visualizer import StereoVisualizer
 from simple_streamer.gui.bbc_now_playing_poller import BbcNowPlayingPoller
+
+PROGRESS_SAVE_INTERVAL_MS = 10_000
 
 UPDATE_OWNER = "mikehellyer"
 UPDATE_REPO = "simple-streamer"
@@ -73,6 +76,7 @@ class MainWindow(QMainWindow):
         self.resize(1120, 580)
 
         self._store = PresetStore()
+        self._episode_progress = EpisodeProgressStore()
         self._background_threads: list[QThread] = []
         self._background_workers: list[_CallableWorker] = []
 
@@ -81,6 +85,7 @@ class MainWindow(QMainWindow):
         self._player.setAudioOutput(self._audio_output)
         self._player.playbackStateChanged.connect(self._on_playback_state_changed)
         self._player.errorOccurred.connect(self._on_player_error)
+        self._player.mediaStatusChanged.connect(self._on_media_status_changed)
 
         self._visualizer = StereoVisualizer()
         self._audio_buffer_output = QAudioBufferOutput()
@@ -90,8 +95,9 @@ class MainWindow(QMainWindow):
         self._tabs = QTabWidget()
         self._decks: dict[str, PresetDeckWidget] = {}
         for category, title in (("radio", "Radio"), ("podcasts", "Podcasts")):
-            deck = PresetDeckWidget(category, self._store, self._run_in_background)
+            deck = PresetDeckWidget(category, self._store, self._run_in_background, self._episode_progress)
             deck.slot_activated.connect(self._play_slot)
+            deck.episode_chosen.connect(self._play_chosen_episode)
             self._tabs.addTab(deck, title)
             self._decks[category] = deck
 
@@ -114,6 +120,7 @@ class MainWindow(QMainWindow):
         self._player_bar.stop_requested.connect(self._stop_playback)
         self._player_bar.play_pause_requested.connect(self._toggle_play_pause)
         self._player_bar.seek_requested.connect(self._seek)
+        self._player_bar.episodes_requested.connect(self._browse_episodes)
 
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -148,6 +155,23 @@ class MainWindow(QMainWindow):
         self._icy_listener: IcyMetadataListener | None = None
         self._icy_bridge = _IcySignalBridge()
         self._icy_bridge.title_changed.connect(self._on_icy_title)
+
+        # The currently-loaded podcast episode's audio URL — None for
+        # radio (nothing to resume) or when nothing's loaded. Doubles as
+        # what periodic saving keys its position/duration snapshot to.
+        self._current_episode_audio_url: str | None = None
+        # A saved position to jump to once the player has actually loaded
+        # whatever it just started — applied on mediaStatusChanged
+        # reaching LoadedMedia, not durationChanged, since durationChanged
+        # only fires when the duration *value* changes: replaying the
+        # same episode again has the same duration as last time, so that
+        # signal would never re-fire and the resume would silently do
+        # nothing. Every fresh setSource() genuinely transitions through
+        # LoadingMedia before LoadedMedia, so that always fires.
+        self._pending_resume_ms: int | None = None
+        self._progress_save_timer = QTimer(self)
+        self._progress_save_timer.timeout.connect(self._save_current_progress)
+        self._progress_save_timer.start(PROGRESS_SAVE_INTERVAL_MS)
         self._bbc_poller = BbcNowPlayingPoller(self._run_in_background)
         self._bbc_poller.title_changed.connect(self._on_bbc_title)
         self._pending_update = None
@@ -195,6 +219,7 @@ class MainWindow(QMainWindow):
         if slot.is_empty:
             return
 
+        self._save_current_progress()
         self._stop_metadata_watchers()
         self._now_playing_detail = None
         self._visualizer.clear()
@@ -247,6 +272,7 @@ class MainWindow(QMainWindow):
             return
         self._now_playing_detail = episode.title
         slot = self._store.slot(self._active_category, self._active_number)
+        self._queue_resume(episode.audio_url)
         self._start_playback("podcasts", episode.audio_url, slot.label, attempt)
 
     def _on_pls_resolved(self, attempt: int, resolved_url: str | None) -> None:
@@ -260,6 +286,7 @@ class MainWindow(QMainWindow):
 
     def _start_playback(self, category: str, url: str, label: str, attempt: int) -> None:
         self._current_attempt_for_player = attempt
+        self._current_episode_audio_url = url if category == "podcasts" else None
         self._player.setSource(QUrl(url))
         self._player.play()
         self._player_bar.set_now_playing(f"Tuning in: {label}…")
@@ -271,6 +298,7 @@ class MainWindow(QMainWindow):
         # that's inconsistent enough across stations to be worse than no
         # rewind/forward controls at all).
         self._player_bar.set_seekable(category == "podcasts")
+        self._player_bar.set_episodes_available(category == "podcasts")
         if category == "radio":
             bbc_service_id = bbc_service_id_from_url(url)
             if bbc_service_id:
@@ -308,6 +336,9 @@ class MainWindow(QMainWindow):
             self._player_bar.set_now_playing(f"Now playing: {slot.label}")
 
     def _stop_playback(self) -> None:
+        # Before self._player.stop(), which resets position() to 0 —
+        # saving after would always persist "0 seconds in".
+        self._save_current_progress()
         self._player.stop()
         self._stop_metadata_watchers()
         self._now_playing_detail = None
@@ -323,12 +354,15 @@ class MainWindow(QMainWindow):
             self._player_bar.set_loading(False)
             self._player_bar.set_website("")
             self._player_bar.set_active(False)
+            self._player_bar.set_episodes_available(False)
         self._active_number = None
+        self._current_episode_audio_url = None
 
     def _toggle_play_pause(self) -> None:
         if self._active_number is None:
             return
         if self._player.playbackState() == QMediaPlayer.PlayingState:
+            self._save_current_progress()
             self._player.pause()
         else:
             self._player.play()
@@ -341,6 +375,51 @@ class MainWindow(QMainWindow):
         if duration > 0:
             new_position = min(new_position, duration)
         self._player.setPosition(new_position)
+
+    def _queue_resume(self, audio_url: str) -> None:
+        progress = self._episode_progress.get(audio_url)
+        self._pending_resume_ms = progress.position_ms if progress else None
+
+    def _on_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
+        if self._pending_resume_ms is None:
+            return
+        if status in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia):
+            self._player.setPosition(self._pending_resume_ms)
+            self._pending_resume_ms = None
+
+    def _save_current_progress(self) -> None:
+        if self._current_episode_audio_url is None:
+            return
+        duration = self._player.duration()
+        if duration <= 0:
+            return  # not loaded far enough yet to know how long it is
+        self._episode_progress.set_position(
+            self._current_episode_audio_url, self._player.position(), duration
+        )
+
+    def _browse_episodes(self) -> None:
+        # The player bar's "Episodes" button only appears for the
+        # currently-active podcast — the same dialog is also reachable by
+        # right-clicking any podcast preset directly (PresetDeckWidget's
+        # context menu), which is where the actual fetch/list logic lives
+        # since it needs to work without anything playing yet.
+        if self._active_category != "podcasts" or self._active_number is None:
+            return
+        self._decks["podcasts"].browse_episodes(self._active_number)
+
+    def _play_chosen_episode(self, number: int, episode) -> None:
+        self._save_current_progress()
+        self._stop_metadata_watchers()
+        slot = self._store.slot("podcasts", number)
+        self._active_category = "podcasts"
+        self._active_number = number
+        self._now_playing_detail = episode.title
+        self._visualizer.clear()
+        self._playback_attempt += 1
+        self._remaining_candidates = []
+        self._player_bar.set_website(slot.website)
+        self._queue_resume(episode.audio_url)
+        self._start_playback("podcasts", episode.audio_url, slot.label, self._playback_attempt)
 
     def _on_playback_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
         if self._active_number is None:
@@ -458,6 +537,7 @@ class MainWindow(QMainWindow):
         self._clock_label.setText(datetime.now().strftime("%d %b %Y  %H:%M:%S"))
 
     def closeEvent(self, event) -> None:
+        self._save_current_progress()
         self._stop_metadata_watchers()
         for thread in list(self._background_threads):
             thread.quit()

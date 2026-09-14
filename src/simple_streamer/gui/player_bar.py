@@ -19,6 +19,7 @@ class PlayerBar(QFrame):
     stop_requested = Signal()
     play_pause_requested = Signal()
     seek_requested = Signal(int)  # milliseconds to jump, negative for back
+    episodes_requested = Signal()
 
     SEEK_STEP_MS = 15_000
 
@@ -47,6 +48,11 @@ class PlayerBar(QFrame):
         self._website_button.clicked.connect(self._open_website)
         self._website_button.hide()
         top_row.addWidget(self._website_button)
+
+        self._episodes_button = QPushButton("Episodes")
+        self._episodes_button.clicked.connect(self.episodes_requested)
+        self._episodes_button.hide()
+        top_row.addWidget(self._episodes_button)
 
         self._rewind_button = QPushButton("⏪ 15s")
         self._rewind_button.clicked.connect(lambda: self.seek_requested.emit(-self.SEEK_STEP_MS))
@@ -83,6 +89,12 @@ class PlayerBar(QFrame):
     def set_website(self, url: str) -> None:
         self._website_url = url or ""
         self._website_button.setVisible(bool(self._website_url))
+
+    def set_episodes_available(self, available: bool) -> None:
+        """Only podcasts have a list of episodes to browse — radio is a
+        single live stream.
+        """
+        self._episodes_button.setVisible(available)
 
     def set_active(self, active: bool) -> None:
         """Whether anything is currently loaded (playing or paused) —

@@ -19,13 +19,16 @@ from PySide6.QtWidgets import (
 )
 
 from simple_streamer.core.presets import PresetStore
+from simple_streamer.core.episode_progress import EpisodeProgressStore
 from simple_streamer.core.text import shorten, PRESET_BUTTON_LABEL_MAX_CHARS
 from simple_streamer.core.image_search import search_and_fetch, download_image, guess_extension
 from simple_streamer.core.station_search import search_stations
 from simple_streamer.core.podcast_search import search_podcasts
+from simple_streamer.core.podcasts import recent_episodes
 from simple_streamer.gui.preset_editor import PresetEditorDialog, CLEARED
 from simple_streamer.gui.image_search_dialog import ImageSearchDialog
 from simple_streamer.gui.preset_search_dialog import PresetSearchDialog
+from simple_streamer.gui.episode_list_dialog import EpisodeListDialog
 
 GRID_COLUMNS = 5
 BUTTON_ICON_SIZE = 48
@@ -68,12 +71,21 @@ class PresetDeckWidget(QWidget):
     """One tab's worth of UI: a 5-wide grid of preset buttons and their legend."""
 
     slot_activated = Signal(str, int)  # category, slot number
+    episode_chosen = Signal(int, object)  # slot number, Episode — podcasts only
 
-    def __init__(self, category: str, store: PresetStore, run_in_background, parent=None):
+    def __init__(
+        self,
+        category: str,
+        store: PresetStore,
+        run_in_background,
+        episode_progress: Optional[EpisodeProgressStore] = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self._category = category
         self._store = store
         self._run_in_background = run_in_background
+        self._episode_progress = episode_progress
         self._buttons: dict[int, QToolButton] = {}
 
         layout = QVBoxLayout(self)
@@ -209,6 +221,9 @@ class PresetDeckWidget(QWidget):
         else:
             find_action = menu.addAction("Find New Podcast…")
             find_action.triggered.connect(lambda: self._find_podcast(number))
+            browse_action = menu.addAction("Browse Episodes…")
+            browse_action.setEnabled(not slot.is_empty)
+            browse_action.triggered.connect(lambda: self.browse_episodes(number))
 
         search_action = menu.addAction("Search for Image…")
         search_action.setEnabled(not slot.is_empty)
@@ -357,3 +372,31 @@ class PresetDeckWidget(QWidget):
             dialog.accept()
         except RuntimeError:
             pass  # the user already closed the dialog while the artwork was downloading
+
+    def browse_episodes(self, number: int) -> None:
+        """Open the episode picker for this podcast slot. Public — also
+        called from MainWindow for the player bar's "Episodes" button,
+        which needs to browse whatever podcast is currently playing
+        regardless of which deck tab is showing.
+        """
+        slot = self._store.slot(self._category, number)
+        if slot.is_empty:
+            return
+        dialog = EpisodeListDialog(slot.label, parent=self)
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.episode_chosen.connect(lambda episode: self.episode_chosen.emit(number, episode))
+        dialog.open()
+        feed_url = slot.url
+        self._run_in_background(
+            lambda: (dialog, recent_episodes(feed_url)),
+            self._on_episodes_fetched,
+        )
+
+    def _on_episodes_fetched(self, result) -> None:
+        dialog, episodes = result
+        progress_for = self._episode_progress.get if self._episode_progress else lambda _url: None
+        paired = [(episode, progress_for(episode.audio_url)) for episode in episodes]
+        try:
+            dialog.show_episodes(paired)
+        except RuntimeError:
+            pass  # the user already closed the dialog before results arrived
