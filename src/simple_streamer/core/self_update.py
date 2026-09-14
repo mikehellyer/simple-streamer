@@ -51,15 +51,38 @@ def download_asset(url: str) -> Optional[Path]:
     return dest_path
 
 
-def launch_installer(path: Path) -> bool:
-    """Hand the downloaded installer off to the OS. True if it was launched."""
-    try:
-        if sys.platform == "win32":
-            subprocess.Popen([str(path)])
-        elif sys.platform == "darwin":
-            subprocess.Popen(["open", str(path)])
-        else:
-            subprocess.Popen(["xdg-open", str(path)])
-    except OSError:
-        return False
-    return True
+def launch_installer(path: Path) -> Optional[subprocess.Popen]:
+    """Hand the downloaded installer off to the OS's normal action for it
+    (runs the .exe, mounts the .dmg, installs the .deb). Raises OSError
+    if nothing could be launched at all — the caller decides how to tell
+    the user.
+
+    Returns the spawned process where there is one, so a caller on Linux
+    can wait for it to finish before quitting — quitting immediately
+    there can kill the pkexec authentication prompt before it's
+    answered, since the desktop session ties a launched app's child
+    processes to its own lifetime. Windows has no equivalent handle for
+    os.startfile, hence None there even on success.
+    """
+    path = str(path)
+    if sys.platform == "win32":
+        import os
+
+        os.startfile(path)
+        return None
+    elif sys.platform == "darwin":
+        return subprocess.Popen(["open", path])
+    else:
+        # Handing a local .deb of an already-installed package to a
+        # desktop "Software" GUI via xdg-open is unreliable across
+        # distros: several (including GNOME Software / Pop!_Shop) show
+        # an "Uninstall" action instead of "Install"/"Reinstall" for a
+        # package already on the system, regardless of the downloaded
+        # file's version — clicking it just removes the current install
+        # and does nothing with the new file, forcing a separate manual
+        # reinstall (and a second password prompt). Installing directly
+        # via apt (through pkexec for a graphical privilege prompt)
+        # upgrades in place with a single prompt instead.
+        if shutil.which("pkexec") and shutil.which("apt"):
+            return subprocess.Popen(["pkexec", "apt", "install", "-y", path])
+        return subprocess.Popen(["xdg-open", path])

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -122,6 +124,15 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.setStatusBar(QStatusBar())
+        self._clock_label = QLabel()
+        self._clock_label.setStyleSheet("font-family: monospace;")
+        # A permanent widget sits on the right of the status bar, separate
+        # from the transient left-aligned messages (showMessage() etc.).
+        self.statusBar().addPermanentWidget(self._clock_label)
+        self._clock_timer = QTimer(self)
+        self._clock_timer.timeout.connect(self._update_clock)
+        self._clock_timer.start(1000)
+        self._update_clock()
 
         self._active_category = "radio"
         self._active_number: int | None = None
@@ -374,12 +385,29 @@ class MainWindow(QMainWindow):
             self._update_banner.set_busy(False)
             return
 
-        if launch_installer(path):
-            self._update_banner.set_status("Installer launched — closing to finish…")
-            QTimer.singleShot(1500, self.close)
-        else:
+        try:
+            process = launch_installer(path)
+        except OSError:
             self._update_banner.set_status(f"Downloaded to {path} — open it manually")
             self._update_banner.set_busy(False)
+            return
+
+        self._update_banner.set_status("Installer launched — closing to finish…")
+        if sys.platform not in ("win32", "darwin") and process is not None:
+            # Linux: wait for the installer (pkexec apt, or xdg-open as a
+            # fallback) to actually finish before quitting — quitting
+            # immediately can kill its password prompt before it's
+            # answered, since the desktop session ties a launched app's
+            # child processes to its own lifetime.
+            self._run_in_background(process.wait, self._on_installer_finished)
+        else:
+            QTimer.singleShot(1500, self.close)
+
+    def _on_installer_finished(self, _returncode) -> None:
+        self.close()
+
+    def _update_clock(self) -> None:
+        self._clock_label.setText(datetime.now().strftime("%d %b %Y  %H:%M:%S"))
 
     def closeEvent(self, event) -> None:
         self._stop_metadata_watchers()

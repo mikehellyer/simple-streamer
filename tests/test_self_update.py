@@ -1,7 +1,11 @@
 import io
 from unittest.mock import patch
 
-from simple_streamer.core.self_update import download_asset, find_asset_for_this_platform
+from simple_streamer.core.self_update import (
+    download_asset,
+    find_asset_for_this_platform,
+    launch_installer,
+)
 
 
 ASSETS = [
@@ -52,3 +56,55 @@ def test_download_asset_writes_the_file(tmp_path, monkeypatch):
 def test_download_asset_returns_none_when_unreachable():
     with patch("urllib.request.urlopen", side_effect=OSError("network down")):
         assert download_asset("https://dl/whatever.exe") is None
+
+
+def test_launch_installer_linux_prefers_pkexec_apt_over_xdg_open():
+    # Handing a local .deb to a desktop "Software" GUI via xdg-open is
+    # unreliable across distros (some show "Uninstall" instead of
+    # "Install"/"Upgrade" for an already-installed package name and do
+    # nothing useful) — installing directly via apt is deterministic and
+    # only prompts for a password once.
+    with patch("simple_streamer.core.self_update.sys.platform", "linux"), patch(
+        "simple_streamer.core.self_update.shutil.which", return_value="/usr/bin/found"
+    ), patch("simple_streamer.core.self_update.subprocess.Popen") as mock_popen:
+        result = launch_installer("/tmp/simple-streamer_1.2.3_amd64.deb")
+
+    mock_popen.assert_called_once_with(
+        ["pkexec", "apt", "install", "-y", "/tmp/simple-streamer_1.2.3_amd64.deb"]
+    )
+    # The caller (main_window.py) waits on this before quitting, on
+    # Linux, so quitting can't kill the pkexec password prompt before
+    # it's answered.
+    assert result is mock_popen.return_value
+
+
+def test_launch_installer_linux_falls_back_to_xdg_open_without_pkexec_or_apt():
+    with patch("simple_streamer.core.self_update.sys.platform", "linux"), patch(
+        "simple_streamer.core.self_update.shutil.which", return_value=None
+    ), patch("simple_streamer.core.self_update.subprocess.Popen") as mock_popen:
+        result = launch_installer("/tmp/simple-streamer_1.2.3_amd64.deb")
+
+    mock_popen.assert_called_once_with(["xdg-open", "/tmp/simple-streamer_1.2.3_amd64.deb"])
+    assert result is mock_popen.return_value
+
+
+def test_launch_installer_macos_uses_open():
+    with patch("simple_streamer.core.self_update.sys.platform", "darwin"), patch(
+        "simple_streamer.core.self_update.subprocess.Popen"
+    ) as mock_popen:
+        result = launch_installer("/tmp/Simple-Streamer.dmg")
+
+    mock_popen.assert_called_once_with(["open", "/tmp/Simple-Streamer.dmg"])
+    assert result is mock_popen.return_value
+
+
+def test_launch_installer_windows_uses_startfile():
+    with patch("simple_streamer.core.self_update.sys.platform", "win32"), patch(
+        "os.startfile", create=True
+    ) as mock_startfile:
+        result = launch_installer("C:\\temp\\Setup.exe")
+
+    mock_startfile.assert_called_once_with("C:\\temp\\Setup.exe")
+    # No process handle for os.startfile — main_window.py falls back to a
+    # timed quit instead of waiting on a process.
+    assert result is None
