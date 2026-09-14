@@ -23,3 +23,4 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "simple_streamer.gui" = ["resources/*.png"]
+"simple_streamer.core" = ["resources/default_images/*.png"]

@@ -11,6 +11,12 @@ from platformdirs import user_config_dir
 SLOTS_PER_DECK = 20
 CATEGORIES = ("radio", "podcasts")
 
+# Curated logos/artwork for the starter presets below (see the
+# "Search for Image" feature, core/image_search.py, for how a user picks
+# their own later) — bundled so a fresh install already looks finished,
+# named to match PresetStore's own {category}_{number} cache filenames.
+DEFAULT_IMAGES_DIR = Path(__file__).parent / "resources" / "default_images"
+
 @dataclass(frozen=True)
 class DefaultPreset:
     label: str
@@ -196,6 +202,7 @@ class PresetStore:
                         website=entry.website,
                         fallback_urls=list(entry.fallback_urls),
                     )
+                    self._seed_default_image(category, number)
 
     def _backfill_new_default_fields(self) -> None:
         """Add a website/fallback URLs to an already-assigned slot that's
@@ -215,6 +222,17 @@ class PresetStore:
                     slot.website = entry.website
                 if not slot.fallback_urls and entry.fallback_urls:
                     slot.fallback_urls = list(entry.fallback_urls)
+                if not slot.image_path:
+                    self._seed_default_image(category, number)
+
+    def _seed_default_image(self, category: str, number: int) -> None:
+        """Cache the bundled logo/artwork for a default preset, if one
+        ships for this slot — the user can always replace it later via
+        "Search for Image" (or "Remove Image"), same as any other image.
+        """
+        for candidate in DEFAULT_IMAGES_DIR.glob(f"{category}_{number}.*"):
+            self.set_image(category, number, candidate.read_bytes(), candidate.suffix)
+            return
 
     @staticmethod
     def _default_config_path() -> Path:

@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from simple_streamer.core import presets as presets_module
 from simple_streamer.core.presets import PresetStore, SLOTS_PER_DECK, CATEGORIES, DEFAULT_PRESETS
 
 
@@ -237,3 +238,101 @@ def test_image_round_trips_through_save_and_reload(tmp_path):
 
     reloaded = PresetStore(config_path=config_path)
     assert reloaded.slot("radio", 1).image_path == path
+
+
+def test_every_bundled_default_preset_has_a_matching_image(monkeypatch, tmp_path):
+    # Regression guard: every entry in DEFAULT_PRESETS is expected to ship
+    # a curated logo under core/resources/default_images — this fails
+    # loudly if a new default preset is added without one, rather than
+    # silently shipping it with no artwork.
+    target = tmp_path / "presets.json"
+    monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
+
+    store = PresetStore()
+
+    for category, entries in DEFAULT_PRESETS.items():
+        for number in range(1, len(entries) + 1):
+            assert store.slot(category, number).image_path, (
+                f"no bundled default image for {category}_{number}"
+            )
+
+
+def test_a_fresh_slot_from_defaults_gets_seeded_with_its_bundled_image(
+    tmp_path, monkeypatch
+):
+    images_dir = tmp_path / "default_images"
+    images_dir.mkdir()
+    (images_dir / "radio_1.png").write_bytes(b"bundled-logo-bytes")
+    monkeypatch.setattr(presets_module, "DEFAULT_IMAGES_DIR", images_dir)
+
+    target = tmp_path / "presets.json"
+    monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
+
+    store = PresetStore()
+
+    path = Path(store.slot("radio", 1).image_path)
+    assert path.read_bytes() == b"bundled-logo-bytes"
+
+
+def test_default_image_backfills_onto_an_already_assigned_slot(tmp_path, monkeypatch):
+    # Same idea as the website backfill: an install from before this
+    # feature shipped already has the slot assigned (matching label/url)
+    # but no image_path — it should pick up the bundled default image too.
+    images_dir = tmp_path / "default_images"
+    images_dir.mkdir()
+    (images_dir / "radio_1.png").write_bytes(b"bundled-logo-bytes")
+    monkeypatch.setattr(presets_module, "DEFAULT_IMAGES_DIR", images_dir)
+
+    target = tmp_path / "presets.json"
+    monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
+    entry = DEFAULT_PRESETS["radio"][0]
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck[0] = {"number": 1, "label": entry.label, "url": entry.url}
+    target.write_text(json.dumps({"radio": old_deck, "podcasts": []}))
+
+    store = PresetStore()
+
+    path = Path(store.slot("radio", 1).image_path)
+    assert path.read_bytes() == b"bundled-logo-bytes"
+
+
+def test_default_image_backfill_skips_a_slot_the_user_repurposed(tmp_path, monkeypatch):
+    images_dir = tmp_path / "default_images"
+    images_dir.mkdir()
+    (images_dir / "radio_1.png").write_bytes(b"bundled-logo-bytes")
+    monkeypatch.setattr(presets_module, "DEFAULT_IMAGES_DIR", images_dir)
+
+    target = tmp_path / "presets.json"
+    monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck[0] = {"number": 1, "label": "My Own Station", "url": "https://mine.example/stream"}
+    target.write_text(json.dumps({"radio": old_deck, "podcasts": []}))
+
+    store = PresetStore()
+
+    assert store.slot("radio", 1).image_path == ""
+
+
+def test_default_image_backfill_skips_a_slot_the_user_already_gave_an_image(
+    tmp_path, monkeypatch
+):
+    images_dir = tmp_path / "default_images"
+    images_dir.mkdir()
+    (images_dir / "radio_1.png").write_bytes(b"bundled-logo-bytes")
+    monkeypatch.setattr(presets_module, "DEFAULT_IMAGES_DIR", images_dir)
+
+    target = tmp_path / "presets.json"
+    monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
+    entry = DEFAULT_PRESETS["radio"][0]
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck[0] = {
+        "number": 1,
+        "label": entry.label,
+        "url": entry.url,
+        "image_path": "/somewhere/my-own-image.png",
+    }
+    target.write_text(json.dumps({"radio": old_deck, "podcasts": []}))
+
+    store = PresetStore()
+
+    assert store.slot("radio", 1).image_path == "/somewhere/my-own-image.png"

@@ -30,6 +30,10 @@ a = Analysis(
     datas=[
         (str(src / "simple_streamer" / "gui" / "resources" / "icon.png"), "simple_streamer/gui/resources"),
         (str(src / "simple_streamer" / "gui" / "resources" / "wordmark.png"), "simple_streamer/gui/resources"),
+        *[
+            (str(image_path), "simple_streamer/core/resources/default_images")
+            for image_path in (src / "simple_streamer" / "core" / "resources" / "default_images").glob("*.png")
+        ],
     ],
     hiddenimports=[],
     hookspath=[],
