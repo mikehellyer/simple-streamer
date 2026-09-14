@@ -19,6 +19,8 @@ import threading
 import urllib.request
 from typing import Callable, Optional
 
+from simple_streamer.core.http import SSL_CONTEXT
+
 CONNECT_TIMEOUT_SECONDS = 6
 READ_TIMEOUT_SECONDS = 15
 _STREAM_TITLE_RE = re.compile(r"StreamTitle='(.*?)';")
@@ -44,7 +46,7 @@ class IcyMetadataListener:
             self._url, headers={"Icy-MetaData": "1", "User-Agent": "Simple-Streamer/1"}
         )
         try:
-            response = urllib.request.urlopen(request, timeout=CONNECT_TIMEOUT_SECONDS)
+            response = urllib.request.urlopen(request, timeout=CONNECT_TIMEOUT_SECONDS, context=SSL_CONTEXT)
         except OSError:
             return
 

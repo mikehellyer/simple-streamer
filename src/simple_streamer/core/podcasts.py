@@ -10,6 +10,8 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Optional
 
+from simple_streamer.core.http import SSL_CONTEXT
+
 FEED_TIMEOUT_SECONDS = 8
 
 
@@ -23,7 +25,7 @@ def latest_episode(feed_url: str) -> Optional[Episode]:
     """Fetch an RSS feed and return its most recent episode, or None on any failure."""
     request = urllib.request.Request(feed_url, headers={"User-Agent": "Simple-Streamer/1 (+podcast player)"})
     try:
-        with urllib.request.urlopen(request, timeout=FEED_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(request, timeout=FEED_TIMEOUT_SECONDS, context=SSL_CONTEXT) as response:
             root = ET.fromstring(response.read())
     except (OSError, ET.ParseError):
         return None

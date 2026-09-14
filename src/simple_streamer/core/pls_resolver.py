@@ -12,6 +12,8 @@ import re
 import urllib.request
 from typing import Optional
 
+from simple_streamer.core.http import SSL_CONTEXT
+
 PLS_TIMEOUT_SECONDS = 6
 _FILE_LINE = re.compile(r"^File1=(.+)$", re.MULTILINE)
 
@@ -20,7 +22,7 @@ def resolve_pls(pls_url: str) -> Optional[str]:
     """Return the stream URL a .pls playlist currently points at, or None."""
     request = urllib.request.Request(pls_url, headers={"User-Agent": "Simple-Streamer/1"})
     try:
-        with urllib.request.urlopen(request, timeout=PLS_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(request, timeout=PLS_TIMEOUT_SECONDS, context=SSL_CONTEXT) as response:
             text = response.read().decode("utf-8", errors="replace")
     except OSError:
         return None

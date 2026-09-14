@@ -13,6 +13,8 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
+from simple_streamer.core.http import SSL_CONTEXT
+
 DOWNLOAD_TIMEOUT_SECONDS = 30
 
 
@@ -41,7 +43,7 @@ def download_asset(url: str) -> Optional[Path]:
 
     request = urllib.request.Request(url, headers={"User-Agent": "Simple-Streamer/1"})
     try:
-        with urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS, context=SSL_CONTEXT) as response:
             with open(dest_path, "wb") as out_file:
                 shutil.copyfileobj(response, out_file)
     except OSError:
