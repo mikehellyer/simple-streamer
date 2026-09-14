@@ -11,8 +11,8 @@ but falls back down gradually, which is what actually makes it read as
 from __future__ import annotations
 
 import numpy as np
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtCore import Qt, QTimer, QRect
+from PySide6.QtGui import QColor, QPainter, QFont
 from PySide6.QtWidgets import QWidget, QSizePolicy
 
 from simple_streamer.core.spectrum import band_levels
@@ -21,10 +21,12 @@ NUM_BANDS = 10
 SEGMENTS_PER_BAR = 6
 DECAY_FACTOR = 0.80  # per repaint tick — how fast a bar falls when it gets quieter
 REPAINT_INTERVAL_MS = 40
+LABEL_WIDTH = 16
 
 BACKGROUND = QColor(18, 20, 20)
 BORDER = QColor(60, 64, 64)
 SEGMENT_OFF = QColor(40, 44, 44)
+LABEL_COLOR = QColor(150, 158, 156)
 GREEN = QColor(70, 220, 110)
 YELLOW = QColor(232, 200, 60)
 RED = QColor(224, 80, 70)
@@ -97,9 +99,23 @@ class StereoVisualizer(QWidget):
 
         margin = 4
         gap = 3
-        usable_width = self.width() - 2 * margin
-        bar_width = (usable_width - gap * (NUM_BANDS - 1)) / NUM_BANDS
         row_height = (self.height() - 2 * margin - gap) / 2
+
+        # "L" / "R" labels, so it's obvious which row is which channel
+        # rather than just two unlabeled rows of bars.
+        label_font = QFont(painter.font())
+        label_font.setBold(True)
+        label_font.setPixelSize(max(9, int(row_height * 0.55)))
+        painter.setFont(label_font)
+        painter.setPen(LABEL_COLOR)
+        for row_index, letter in enumerate(("L", "R")):
+            row_top = margin + row_index * (row_height + gap)
+            label_rect = QRect(margin, int(row_top), LABEL_WIDTH, int(row_height))
+            painter.drawText(label_rect, Qt.AlignCenter, letter)
+
+        bars_left = margin + LABEL_WIDTH
+        usable_width = self.width() - bars_left - margin
+        bar_width = (usable_width - gap * (NUM_BANDS - 1)) / NUM_BANDS
         seg_gap = 1
         seg_height = (row_height - seg_gap * (SEGMENTS_PER_BAR - 1)) / SEGMENTS_PER_BAR
 
@@ -115,7 +131,7 @@ class StereoVisualizer(QWidget):
             # while the bar still reads as discrete LED blocks.
             raw_heights = self._display[channel] * SEGMENTS_PER_BAR
             for band_index in range(NUM_BANDS):
-                x = margin + band_index * (bar_width + gap)
+                x = bars_left + band_index * (bar_width + gap)
                 raw = raw_heights[band_index]
                 full_lit = int(np.floor(raw))
                 partial = raw - full_lit
