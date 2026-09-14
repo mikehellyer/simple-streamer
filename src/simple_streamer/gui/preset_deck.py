@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QIcon, QPixmap
@@ -19,9 +20,12 @@ from PySide6.QtWidgets import (
 
 from simple_streamer.core.presets import PresetStore
 from simple_streamer.core.text import shorten, PRESET_BUTTON_LABEL_MAX_CHARS
-from simple_streamer.core.image_search import search_and_fetch
+from simple_streamer.core.image_search import search_and_fetch, download_image, guess_extension
+from simple_streamer.core.station_search import search_stations
+from simple_streamer.core.podcast_search import search_podcasts
 from simple_streamer.gui.preset_editor import PresetEditorDialog, CLEARED
 from simple_streamer.gui.image_search_dialog import ImageSearchDialog
+from simple_streamer.gui.preset_search_dialog import PresetSearchDialog
 
 GRID_COLUMNS = 5
 BUTTON_ICON_SIZE = 48
@@ -199,6 +203,13 @@ class PresetDeckWidget(QWidget):
         edit_action = menu.addAction("Edit Preset…")
         edit_action.triggered.connect(lambda: self._assign_slot(number))
 
+        if self._category == "radio":
+            find_action = menu.addAction("Find New Station…")
+            find_action.triggered.connect(lambda: self._find_station(number))
+        else:
+            find_action = menu.addAction("Find New Podcast…")
+            find_action.triggered.connect(lambda: self._find_podcast(number))
+
         search_action = menu.addAction("Search for Image…")
         search_action.setEnabled(not slot.is_empty)
         search_action.triggered.connect(lambda: self._search_image(number))
@@ -260,3 +271,89 @@ class PresetDeckWidget(QWidget):
         self._store.clear_image(self._category, number)
         self._store.save()
         self.refresh_labels()
+
+    def _find_station(self, number: int) -> None:
+        dialog = PresetSearchDialog("station", parent=self)
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+
+        # Both signals are only ever emitted from user interaction inside
+        # the dialog (typing/clicking), so — unlike the _run_in_background
+        # callbacks below — a lambda here is fine: it always runs on the
+        # main thread already, nothing to marshal.
+        dialog.search_requested.connect(
+            lambda query: self._run_in_background(
+                lambda: (dialog, search_stations(query)),
+                self._on_find_results,
+            )
+        )
+        dialog.result_chosen.connect(
+            lambda station: self._run_in_background(
+                lambda: (dialog, number, station, self._fetch_url(station.favicon_url)),
+                self._on_station_chosen,
+            )
+        )
+        dialog.open()
+
+    def _find_podcast(self, number: int) -> None:
+        dialog = PresetSearchDialog("podcast", parent=self)
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.search_requested.connect(
+            lambda query: self._run_in_background(
+                lambda: (dialog, search_podcasts(query)),
+                self._on_find_results,
+            )
+        )
+        dialog.result_chosen.connect(
+            lambda podcast: self._run_in_background(
+                lambda: (dialog, number, podcast, self._fetch_url(podcast.artwork_url)),
+                self._on_podcast_chosen,
+            )
+        )
+        dialog.open()
+
+    @staticmethod
+    def _fetch_url(url: str) -> Optional[bytes]:
+        if not url:
+            return None
+        return download_image(url)
+
+    def _on_find_results(self, result) -> None:
+        dialog, results = result
+        try:
+            dialog.show_results(results)
+        except RuntimeError:
+            pass  # the user already closed the dialog before results arrived
+
+    def _replace_slot(self, number: int, label: str, url: str, website: str, image_bytes, image_url: str) -> None:
+        self._store.assign(self._category, number, label, url, website=website)
+        # assign() preserves whatever image the slot already had (right,
+        # for the ordinary Edit Preset path, which never touches images) —
+        # but this replaces the slot with a whole different station/
+        # podcast, so one with no artwork of its own must not keep a
+        # stale old image.
+        if image_bytes:
+            self._store.set_image(self._category, number, image_bytes, guess_extension(image_url))
+        else:
+            self._store.clear_image(self._category, number)
+        self._store.save()
+        self.refresh_labels()
+
+    def _on_station_chosen(self, result) -> None:
+        dialog, number, station, image_bytes = result
+        self._replace_slot(
+            number, station.name, station.stream_url, station.website, image_bytes, station.favicon_url
+        )
+        try:
+            dialog.accept()
+        except RuntimeError:
+            pass  # the user already closed the dialog while the logo was downloading
+
+    def _on_podcast_chosen(self, result) -> None:
+        dialog, number, podcast, image_bytes = result
+        self._replace_slot(
+            number, podcast.name, podcast.feed_url, podcast.website, image_bytes, podcast.artwork_url
+        )
+        try:
+            dialog.accept()
+        except RuntimeError:
+            pass  # the user already closed the dialog while the artwork was downloading
