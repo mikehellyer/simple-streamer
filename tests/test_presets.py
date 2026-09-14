@@ -108,10 +108,13 @@ def test_real_first_run_seeds_the_starter_presets(tmp_path, monkeypatch):
     store = PresetStore()
 
     for category, entries in DEFAULT_PRESETS.items():
-        for number, (label, url) in enumerate(entries, start=1):
+        for number, entry in enumerate(entries, start=1):
+            label, url = entry[0], entry[1]
             slot = store.slot(category, number)
             assert slot.label == label
             assert slot.url == url
+            if len(entry) > 2:
+                assert slot.fallback_urls == entry[2]
     assert target.exists()
 
 

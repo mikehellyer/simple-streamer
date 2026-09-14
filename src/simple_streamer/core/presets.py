@@ -15,15 +15,27 @@ CATEGORIES = ("radio", "podcasts")
 # Radio entries are direct live-stream URLs (a .pls entry is a redirector
 # with a short-lived signed URL inside, re-resolved at play time — see
 # core/pls_resolver.py); podcast entries are RSS feed URLs, resolved to the
-# latest episode at play time (see core/podcasts.py).
-DEFAULT_PRESETS: dict[str, list[tuple[str, str]]] = {
+# latest episode at play time (see core/podcasts.py). An entry may include
+# a third element, a list of fallback URLs tried in order if the main one
+# fails.
+DEFAULT_PRESETS: dict[str, list[tuple]] = {
     "radio": [
         ("BBC Radio 1", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_one&bitrate=320000"),
         ("BBC Radio 2", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_two&bitrate=320000"),
         ("BBC Radio 3", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_three&bitrate=320000"),
         ("BBC Radio 4", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_fourfm&bitrate=320000"),
         ("BBC Radio 5 Live", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=320000"),
-        ("BBC Radio 5 Live Sports Extra", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live_sports_extra&bitrate=320000"),
+        (
+            "BBC Radio 5 Live Sports Extra",
+            # The lsn.lv resolver's mapping for this one is stale — it
+            # points at the worldwide CDN pool, which 403s for this
+            # specific (rights-restricted) station. The UK pool works;
+            # keep the resolver as a fallback in case Akamai's pool id
+            # rotates and the direct URL below goes stale before this
+            # does.
+            "http://as-hls-uk-live.akamaized.net/pool_47700285/live/uk/bbc_radio_five_live_sports_extra/bbc_radio_five_live_sports_extra.isml/bbc_radio_five_live_sports_extra-audio%3d320000.norewind.m3u8",
+            ["https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live_sports_extra&bitrate=320000"],
+        ),
         ("BBC Radio Scotland", "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_scotland_fm&bitrate=320000"),
         ("talkSPORT", "http://talksport.live.stream.broadcasting.news/stream-mp3?ref=RF"),
         ("talkSPORT 2", "http://talksport.live.stream.broadcasting.news/stream2-mp3?ref=RF"),
@@ -90,9 +102,11 @@ class PresetStore:
         machine that already has a presets.json from an earlier version.
         """
         for category, entries in DEFAULT_PRESETS.items():
-            for number, (label, url) in enumerate(entries, start=1):
+            for number, entry in enumerate(entries, start=1):
+                label, url = entry[0], entry[1]
+                fallback_urls = entry[2] if len(entry) > 2 else None
                 if self.slot(category, number).is_empty:
-                    self.assign(category, number, label, url)
+                    self.assign(category, number, label, url, fallback_urls=fallback_urls)
 
     @staticmethod
     def _default_config_path() -> Path:

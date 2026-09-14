@@ -79,7 +79,11 @@ class IcyMetadataListener:
                     break
                 match = _STREAM_TITLE_RE.search(meta_bytes.decode("utf-8", errors="replace"))
                 title = match.group(1).strip() if match else ""
-                if title and title != last_title:
+                # Talk stations often set StreamTitle to a junk placeholder
+                # (talkSPORT sends a bare "_") since there's no song to
+                # announce — anything with no actual letters/digits in it
+                # isn't real "now playing" info.
+                if title and any(c.isalnum() for c in title) and title != last_title:
                     last_title = title
                     self._on_title(title)
         except OSError:

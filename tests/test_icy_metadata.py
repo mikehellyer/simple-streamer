@@ -49,6 +49,37 @@ def test_reports_a_stream_title_change():
     assert titles == ["Scott Walker - Joanna"]
 
 
+def test_ignores_a_junk_placeholder_title():
+    # Real observed behavior from talkSPORT: StreamTitle is a bare "_"
+    # since talk radio has no song to announce. Followed by a real title
+    # to confirm the listener keeps working afterward rather than getting
+    # stuck once it's seen junk.
+    metaint = 8
+    audio_chunk = b"\x00" * metaint
+    body = (
+        audio_chunk
+        + _icy_block("StreamTitle='_';")
+        + audio_chunk
+        + _icy_block("StreamTitle='Real Show Title';")
+        + audio_chunk
+        + b"\x00"
+    )
+    response = _FakeResponse({"icy-metaint": str(metaint)}, body)
+
+    titles = []
+    with patch("urllib.request.urlopen", return_value=response):
+        listener = IcyMetadataListener("http://example.com/stream", titles.append)
+        listener.start()
+        for _ in range(50):
+            if titles:
+                break
+            time.sleep(0.05)
+        listener.stop()
+        listener._thread.join(timeout=2)
+
+    assert titles == ["Real Show Title"]
+
+
 def test_exits_cleanly_when_no_icy_metaint_header():
     response = _FakeResponse({}, b"\x00" * 100)
 

@@ -21,6 +21,7 @@ from simple_streamer.core.presets import PresetStore
 from simple_streamer.core.podcasts import latest_episode
 from simple_streamer.core.pls_resolver import resolve_pls
 from simple_streamer.core.icy_metadata import IcyMetadataListener
+from simple_streamer.core.bbc_nowplaying import bbc_service_id_from_url
 from simple_streamer.core.updater import check_for_update, API_TIMEOUT_SECONDS
 from simple_streamer.core.self_update import (
     find_asset_for_this_platform,
@@ -31,6 +32,7 @@ from simple_streamer.gui.preset_deck import PresetDeckWidget
 from simple_streamer.gui.player_bar import PlayerBar
 from simple_streamer.gui.update_banner import UpdateBanner
 from simple_streamer.gui.audio_visualizer import StereoVisualizer
+from simple_streamer.gui.bbc_now_playing_poller import BbcNowPlayingPoller
 
 UPDATE_OWNER = "mikehellyer"
 UPDATE_REPO = "simple-streamer"
@@ -135,6 +137,8 @@ class MainWindow(QMainWindow):
         self._icy_listener: IcyMetadataListener | None = None
         self._icy_bridge = _IcySignalBridge()
         self._icy_bridge.title_changed.connect(self._on_icy_title)
+        self._bbc_poller = BbcNowPlayingPoller(self._run_in_background)
+        self._bbc_poller.title_changed.connect(self._on_bbc_title)
         self._pending_update = None
 
         self._check_for_updates()
@@ -172,7 +176,7 @@ class MainWindow(QMainWindow):
         if slot.is_empty:
             return
 
-        self._stop_icy_listener()
+        self._stop_metadata_watchers()
         self._now_playing_detail = None
         self._visualizer.clear()
         self._active_category = category
@@ -240,15 +244,29 @@ class MainWindow(QMainWindow):
         self._player.play()
         self._player_bar.set_now_playing(f"Tuning in: {label}…")
         if category == "radio":
-            self._icy_listener = IcyMetadataListener(url, self._icy_bridge.title_changed.emit)
-            self._icy_listener.start()
+            bbc_service_id = bbc_service_id_from_url(url)
+            if bbc_service_id:
+                # BBC's streams are HLS — no ICY tags to read, so this
+                # polls BBC's own now-playing API instead (see
+                # gui/bbc_now_playing_poller.py).
+                self._bbc_poller.start(bbc_service_id)
+            else:
+                self._icy_listener = IcyMetadataListener(url, self._icy_bridge.title_changed.emit)
+                self._icy_listener.start()
 
-    def _stop_icy_listener(self) -> None:
+    def _stop_metadata_watchers(self) -> None:
         if self._icy_listener is not None:
             self._icy_listener.stop()
             self._icy_listener = None
+        self._bbc_poller.stop()
 
     def _on_icy_title(self, title: str) -> None:
+        if self._active_category != "radio" or self._active_number is None:
+            return  # a stale title from a station we've since moved away from
+        self._now_playing_detail = title
+        self._refresh_now_playing()
+
+    def _on_bbc_title(self, title: str) -> None:
         if self._active_category != "radio" or self._active_number is None:
             return  # a stale title from a station we've since moved away from
         self._now_playing_detail = title
@@ -263,7 +281,7 @@ class MainWindow(QMainWindow):
 
     def _stop_playback(self) -> None:
         self._player.stop()
-        self._stop_icy_listener()
+        self._stop_metadata_watchers()
         self._now_playing_detail = None
         self._visualizer.clear()
         # Bumping this invalidates any resolve/error callback still in
@@ -356,7 +374,7 @@ class MainWindow(QMainWindow):
             self._update_banner.set_busy(False)
 
     def closeEvent(self, event) -> None:
-        self._stop_icy_listener()
+        self._stop_metadata_watchers()
         for thread in list(self._background_threads):
             thread.quit()
             thread.wait(BACKGROUND_JOIN_TIMEOUT_MS)
