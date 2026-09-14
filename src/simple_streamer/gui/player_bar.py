@@ -48,38 +48,15 @@ class PlayerBar(QFrame):
         outer.setContentsMargins(12, 10, 12, 10)
         outer.setSpacing(6)
 
-        top_row = QHBoxLayout()
+        # Title gets its own full-width row — sharing a row with the
+        # buttons let a long episode title push/squeeze them (sometimes
+        # off the edge of the window entirely) since they had to split
+        # the same horizontal space.
+        title_row = QHBoxLayout()
         self._now_playing = QLabel("Nothing playing")
         self._now_playing.setStyleSheet("font-size: 16px; font-weight: 600;")
-        top_row.addWidget(self._now_playing, stretch=1)
-
-        self._website_url = ""
-        self._website_button = QPushButton("Website")
-        self._website_button.clicked.connect(self._open_website)
-        self._website_button.hide()
-        top_row.addWidget(self._website_button)
-
-        self._episodes_button = QPushButton("Episodes")
-        self._episodes_button.clicked.connect(self.episodes_requested)
-        self._episodes_button.hide()
-        top_row.addWidget(self._episodes_button)
-
-        self._rewind_button = QPushButton("⏪ 15s")
-        self._rewind_button.clicked.connect(lambda: self.seek_requested.emit(-self.SEEK_STEP_MS))
-        top_row.addWidget(self._rewind_button)
-
-        self._play_pause_button = QPushButton("Pause")
-        self._play_pause_button.clicked.connect(self.play_pause_requested)
-        top_row.addWidget(self._play_pause_button)
-
-        self._forward_button = QPushButton("15s ⏩")
-        self._forward_button.clicked.connect(lambda: self.seek_requested.emit(self.SEEK_STEP_MS))
-        top_row.addWidget(self._forward_button)
-
-        self._stop_button = QPushButton("Stop")
-        self._stop_button.clicked.connect(self.stop_requested)
-        top_row.addWidget(self._stop_button)
-        outer.addLayout(top_row)
+        title_row.addWidget(self._now_playing, stretch=1)
+        outer.addLayout(title_row)
 
         progress_row = QHBoxLayout()
         self._is_scrubbing = False
@@ -92,6 +69,41 @@ class PlayerBar(QFrame):
         self._progress_time_label.setStyleSheet("color: gray; font-size: 11px;")
         progress_row.addWidget(self._progress_time_label)
         outer.addLayout(progress_row)
+
+        # Buttons centered on their own row below the progress bar,
+        # rather than sharing space with the title.
+        controls_row = QHBoxLayout()
+        controls_row.addStretch(1)
+
+        self._website_url = ""
+        self._website_button = QPushButton("Website")
+        self._website_button.clicked.connect(self._open_website)
+        self._website_button.hide()
+        controls_row.addWidget(self._website_button)
+
+        self._episodes_button = QPushButton("Episodes")
+        self._episodes_button.clicked.connect(self.episodes_requested)
+        self._episodes_button.hide()
+        controls_row.addWidget(self._episodes_button)
+
+        self._rewind_button = QPushButton("⏪ 15s")
+        self._rewind_button.clicked.connect(lambda: self.seek_requested.emit(-self.SEEK_STEP_MS))
+        controls_row.addWidget(self._rewind_button)
+
+        self._play_pause_button = QPushButton("Pause")
+        self._play_pause_button.clicked.connect(self.play_pause_requested)
+        controls_row.addWidget(self._play_pause_button)
+
+        self._forward_button = QPushButton("15s ⏩")
+        self._forward_button.clicked.connect(lambda: self.seek_requested.emit(self.SEEK_STEP_MS))
+        controls_row.addWidget(self._forward_button)
+
+        self._stop_button = QPushButton("Stop")
+        self._stop_button.clicked.connect(self.stop_requested)
+        controls_row.addWidget(self._stop_button)
+
+        controls_row.addStretch(1)
+        outer.addLayout(controls_row)
 
         self.set_active(False)
 

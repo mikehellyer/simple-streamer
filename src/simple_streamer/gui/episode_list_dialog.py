@@ -32,7 +32,10 @@ class EpisodeListDialog(QDialog):
     def __init__(self, podcast_label: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"Episodes — {podcast_label}")
-        self.setMinimumSize(480, 420)
+        # Wide enough for a long real-world episode title (many podcasts
+        # pack a lot into one) without wrapping mid-word — narrower
+        # dialogs made titles wrap awkwardly.
+        self.setMinimumSize(640, 420)
 
         layout = QVBoxLayout(self)
         self._status = QLabel("Loading recent episodes…")
@@ -40,6 +43,7 @@ class EpisodeListDialog(QDialog):
         layout.addWidget(self._status)
 
         self._list = QListWidget()
+        self._list.setWordWrap(True)
         self._list.itemSelectionChanged.connect(self._on_selection_changed)
         self._list.itemDoubleClicked.connect(lambda _item: self._play_selected())
         layout.addWidget(self._list, stretch=1)
