@@ -88,7 +88,7 @@ class MainWindow(QMainWindow):
         self._tabs = QTabWidget()
         self._decks: dict[str, PresetDeckWidget] = {}
         for category, title in (("radio", "Radio"), ("podcasts", "Podcasts")):
-            deck = PresetDeckWidget(category, self._store)
+            deck = PresetDeckWidget(category, self._store, self._run_in_background)
             deck.slot_activated.connect(self._play_slot)
             self._tabs.addTab(deck, title)
             self._decks[category] = deck
@@ -150,7 +150,15 @@ class MainWindow(QMainWindow):
         worker = _CallableWorker(fn)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
-        worker.finished.connect(on_finished)
+        # Explicit QueuedConnection, not Auto: Auto only recognizes it needs
+        # to marshal onto the receiver's thread when the receiver is a
+        # QObject method, since that's how it looks up thread affinity. A
+        # plain lambda has no such receiver, so Auto runs it directly on
+        # this worker thread instead — harmless for a callback that only
+        # mutates existing widgets, but fatal the moment one constructs a
+        # new widget (macOS aborts outright: "NSWindow should only be
+        # instantiated on the main thread!").
+        worker.finished.connect(on_finished, Qt.QueuedConnection)
         worker.finished.connect(thread.quit)
 
         def _cleanup():

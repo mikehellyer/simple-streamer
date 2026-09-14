@@ -1,23 +1,30 @@
 """A single 20-slot preset deck (used for both the Radio tab and the Podcasts tab)."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QSize, Signal
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QGridLayout,
     QLabel,
-    QPushButton,
+    QToolButton,
     QFrame,
     QSizePolicy,
     QDialog,
+    QMenu,
 )
 
 from simple_streamer.core.presets import PresetStore
 from simple_streamer.core.text import shorten, PRESET_BUTTON_LABEL_MAX_CHARS
+from simple_streamer.core.image_search import search_and_fetch
 from simple_streamer.gui.preset_editor import PresetEditorDialog, CLEARED
+from simple_streamer.gui.image_search_dialog import ImageSearchDialog
 
 GRID_COLUMNS = 5
+BUTTON_ICON_SIZE = 48
 
 
 class LegendOverlay(QFrame):
@@ -58,19 +65,24 @@ class PresetDeckWidget(QWidget):
 
     slot_activated = Signal(str, int)  # category, slot number
 
-    def __init__(self, category: str, store: PresetStore, parent=None):
+    def __init__(self, category: str, store: PresetStore, run_in_background, parent=None):
         super().__init__(parent)
         self._category = category
         self._store = store
-        self._buttons: dict[int, QPushButton] = {}
+        self._run_in_background = run_in_background
+        self._buttons: dict[int, QToolButton] = {}
 
         layout = QVBoxLayout(self)
 
         grid_container = QWidget()
         self._grid = QGridLayout(grid_container)
         for slot in store.deck(category):
-            button = QPushButton()
-            button.setMinimumHeight(64)
+            button = QToolButton()
+            # Image (if any) above the text, both centered — a plain
+            # QPushButton always puts its icon to the left of the text,
+            # with no built-in way to stack them instead.
+            button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            button.setMinimumHeight(88)
             # Ignored (not Expanding) so a long label like "BBC Radio 5 Live
             # Sports Extra" doesn't inflate this button's own size hint and
             # drag its whole column wider than the others — column width
@@ -79,7 +91,7 @@ class PresetDeckWidget(QWidget):
             button.clicked.connect(lambda _checked=False, n=slot.number: self._on_slot_clicked(n))
             button.setContextMenuPolicy(Qt.CustomContextMenu)
             button.customContextMenuRequested.connect(
-                lambda _pos, n=slot.number: self._assign_slot(n)
+                lambda pos, n=slot.number, b=button: self._show_context_menu(n, b, pos)
             )
             row, col = divmod(slot.number - 1, GRID_COLUMNS)
             self._grid.addWidget(button, row, col)
@@ -97,7 +109,9 @@ class PresetDeckWidget(QWidget):
 
         layout.addWidget(grid_container)
 
-        hint = QLabel("Click a slot to play it · right-click to assign · hold F1 for the legend")
+        hint = QLabel(
+            "Click a slot to play it · right-click for options · hold F1 for the legend"
+        )
         hint.setStyleSheet("color: gray; font-size: 11px;")
         layout.addWidget(hint)
 
@@ -117,13 +131,22 @@ class PresetDeckWidget(QWidget):
         for slot in self._store.deck(self._category):
             button = self._buttons[slot.number]
             if slot.label:
-                button.setText(f"{slot.number}\n{shorten(slot.label, PRESET_BUTTON_LABEL_MAX_CHARS)}")
+                button.setText(shorten(slot.label, PRESET_BUTTON_LABEL_MAX_CHARS))
                 tooltip = f"{slot.label}\n{slot.website}" if slot.website else slot.label
                 button.setToolTip(tooltip)
             else:
-                button.setText(str(slot.number))
+                button.setText("")
                 button.setToolTip("")
+            self._set_button_icon(button, slot.image_path)
         self._legend.refresh()
+
+    def _set_button_icon(self, button: QToolButton, image_path: str) -> None:
+        pixmap = QPixmap(image_path) if image_path and Path(image_path).exists() else None
+        if pixmap and not pixmap.isNull():
+            button.setIcon(QIcon(pixmap))
+            button.setIconSize(QSize(BUTTON_ICON_SIZE, BUTTON_ICON_SIZE))
+        else:
+            button.setIcon(QIcon())
 
     def show_legend(self, visible: bool) -> None:
         if visible:
@@ -166,5 +189,74 @@ class PresetDeckWidget(QWidget):
             self._store.assign(self._category, number, **dialog.result_data())
         else:
             return
+        self._store.save()
+        self.refresh_labels()
+
+    def _show_context_menu(self, number: int, button: QToolButton, pos) -> None:
+        slot = self._store.slot(self._category, number)
+        menu = QMenu(self)
+
+        edit_action = menu.addAction("Edit Preset…")
+        edit_action.triggered.connect(lambda: self._assign_slot(number))
+
+        search_action = menu.addAction("Search for Image…")
+        search_action.setEnabled(not slot.is_empty)
+        search_action.triggered.connect(lambda: self._search_image(number))
+
+        if slot.image_path:
+            remove_action = menu.addAction("Remove Image")
+            remove_action.triggered.connect(lambda: self._remove_image(number))
+
+        # popup() (not exec()) — exec()'s nested event loop is what left
+        # preset buttons stuck mid-hover after a right-click-then-Cancel
+        # on the editor dialog (see the comment on _assign_slot); popup()
+        # shows the menu without one.
+        menu.popup(button.mapToGlobal(pos))
+
+    def _search_image(self, number: int) -> None:
+        slot = self._store.slot(self._category, number)
+        dialog = ImageSearchDialog(slot.label, parent=self)
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.finished.connect(
+            lambda result_code: self._on_image_search_finished(number, dialog, result_code)
+        )
+        dialog.open()
+        category = self._category
+        label = slot.label
+        # on_finished must be a plain bound method, not a lambda — Qt only
+        # recognizes it has to marshal the callback onto the main thread
+        # when it can see a real QObject receiver (via a bound method's
+        # __self__); a lambda wrapper hides that, so the callback below
+        # would otherwise run on the worker thread and silently fail to
+        # add its new buttons to a grid owned by the main thread (see the
+        # Qt.QueuedConnection comment in MainWindow._run_in_background).
+        # Bundling dialog+results into one tuple return value avoids
+        # needing a lambda here to bind dialog as an extra argument.
+        self._run_in_background(
+            lambda: (dialog, search_and_fetch(category, label)),
+            self._on_image_results,
+        )
+
+    def _on_image_results(self, result) -> None:
+        dialog, fetched = result
+        try:
+            dialog.show_results(fetched)
+        except RuntimeError:
+            pass  # the user already closed the dialog before results arrived
+
+    def _on_image_search_finished(
+        self, number: int, dialog: ImageSearchDialog, result_code: int
+    ) -> None:
+        if result_code != QDialog.Accepted:
+            return
+        chosen = dialog.chosen_image()
+        if chosen is None:
+            return
+        self._store.set_image(self._category, number, chosen.image_bytes, chosen.extension)
+        self._store.save()
+        self.refresh_labels()
+
+    def _remove_image(self, number: int) -> None:
+        self._store.clear_image(self._category, number)
         self._store.save()
         self.refresh_labels()

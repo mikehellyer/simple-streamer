@@ -141,6 +141,11 @@ class PresetSlot:
     # Tried in order, after `url`, if the main stream/feed fails to load —
     # see MainWindow's playback-attempt queue in gui/main_window.py.
     fallback_urls: list[str] = field(default_factory=list)
+    # Path to a locally cached logo/artwork picked via the "Search for
+    # Image" context menu (core/image_search.py) — not a remote URL, since
+    # re-fetching on every startup would make the preset buttons depend on
+    # both network access and some third party's URL staying alive.
+    image_path: str = ""
 
     @property
     def is_empty(self) -> bool:
@@ -230,16 +235,43 @@ class PresetStore:
         website: str = "",
         fallback_urls: Optional[list[str]] = None,
     ) -> None:
+        # The preset editor doesn't touch images at all, so an edit to the
+        # name/URL of a slot that already has one shouldn't silently lose
+        # it — only clear()/clear_image() should do that.
+        existing_image = self._decks[category][number - 1].image_path
         self._decks[category][number - 1] = PresetSlot(
             number=number,
             label=label,
             url=url,
             website=website,
             fallback_urls=list(fallback_urls) if fallback_urls else [],
+            image_path=existing_image,
         )
 
     def clear(self, category: str, number: int) -> None:
+        self._clear_cached_image_file(category, number)
         self._decks[category][number - 1] = PresetSlot(number=number)
+
+    def image_cache_dir(self) -> Path:
+        return self._config_path.parent / "images"
+
+    def set_image(self, category: str, number: int, image_bytes: bytes, extension: str) -> str:
+        """Cache image_bytes to disk for this slot and return the path."""
+        self._clear_cached_image_file(category, number)
+        directory = self.image_cache_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{category}_{number}{extension}"
+        path.write_bytes(image_bytes)
+        self.slot(category, number).image_path = str(path)
+        return str(path)
+
+    def clear_image(self, category: str, number: int) -> None:
+        self._clear_cached_image_file(category, number)
+        self.slot(category, number).image_path = ""
+
+    def _clear_cached_image_file(self, category: str, number: int) -> None:
+        for stale in self.image_cache_dir().glob(f"{category}_{number}.*"):
+            stale.unlink(missing_ok=True)
 
     def load(self) -> None:
         if not self._config_path.exists():
@@ -258,6 +290,7 @@ class PresetStore:
                         url=raw.get("url", ""),
                         website=raw.get("website", ""),
                         fallback_urls=list(raw.get("fallback_urls", [])),
+                        image_path=raw.get("image_path", ""),
                     )
 
     def save(self) -> None:

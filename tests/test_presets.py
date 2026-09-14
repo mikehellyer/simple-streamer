@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from simple_streamer.core.presets import PresetStore, SLOTS_PER_DECK, CATEGORIES, DEFAULT_PRESETS
 
@@ -166,3 +167,73 @@ def test_website_backfill_skips_a_slot_the_user_repurposed(tmp_path, monkeypatch
     store = PresetStore()
 
     assert store.slot("radio", 1).website == ""
+
+
+def test_new_slot_has_no_image_by_default(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+    assert store.slot("radio", 1).image_path == ""
+
+
+def test_set_image_caches_bytes_to_disk_and_records_the_path(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+    store.assign("radio", 1, "BBC Radio 1", "https://stream.example/bbc1")
+
+    path = store.set_image("radio", 1, b"fake-png-bytes", ".png")
+
+    assert store.slot("radio", 1).image_path == path
+    assert Path(path).read_bytes() == b"fake-png-bytes"
+    assert Path(path).parent == store.image_cache_dir()
+
+
+def test_set_image_replaces_a_previous_image_with_a_different_extension(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+    store.assign("radio", 1, "BBC Radio 1", "https://stream.example/bbc1")
+    old_path = Path(store.set_image("radio", 1, b"old-ico-bytes", ".ico"))
+
+    new_path = Path(store.set_image("radio", 1, b"new-png-bytes", ".png"))
+
+    assert not old_path.exists()
+    assert new_path.read_bytes() == b"new-png-bytes"
+    assert store.slot("radio", 1).image_path == str(new_path)
+
+
+def test_clear_image_removes_the_cached_file_and_the_reference(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+    store.assign("radio", 1, "BBC Radio 1", "https://stream.example/bbc1")
+    path = Path(store.set_image("radio", 1, b"png-bytes", ".png"))
+
+    store.clear_image("radio", 1)
+
+    assert not path.exists()
+    assert store.slot("radio", 1).image_path == ""
+
+
+def test_clearing_a_slot_also_removes_its_cached_image(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+    store.assign("radio", 1, "BBC Radio 1", "https://stream.example/bbc1")
+    path = Path(store.set_image("radio", 1, b"png-bytes", ".png"))
+
+    store.clear("radio", 1)
+
+    assert not path.exists()
+
+
+def test_editing_a_slot_preserves_its_existing_image(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+    store.assign("radio", 1, "BBC Radio 1", "https://stream.example/bbc1")
+    path = store.set_image("radio", 1, b"png-bytes", ".png")
+
+    store.assign("radio", 1, "BBC Radio 1 (renamed)", "https://stream.example/bbc1-new")
+
+    assert store.slot("radio", 1).image_path == path
+
+
+def test_image_round_trips_through_save_and_reload(tmp_path):
+    config_path = tmp_path / "presets.json"
+    store = PresetStore(config_path=config_path)
+    store.assign("radio", 1, "BBC Radio 1", "https://stream.example/bbc1")
+    path = store.set_image("radio", 1, b"png-bytes", ".png")
+    store.save()
+
+    reloaded = PresetStore(config_path=config_path)
+    assert reloaded.slot("radio", 1).image_path == path
