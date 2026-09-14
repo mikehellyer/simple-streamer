@@ -1,7 +1,7 @@
 """A single 20-slot preset deck (used for both the Radio tab and the Podcasts tab)."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -78,15 +78,8 @@ class PresetDeckWidget(QWidget):
             button.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
             button.clicked.connect(lambda _checked=False, n=slot.number: self._on_slot_clicked(n))
             button.setContextMenuPolicy(Qt.CustomContextMenu)
-            # Deferred via singleShot rather than opening the (modal) editor
-            # dialog directly in this handler — doing it synchronously here
-            # interferes with Qt's mouse press/release bookkeeping for the
-            # button (the nested dialog event loop runs before Qt finishes
-            # processing the right-click that triggered it), leaving
-            # buttons stuck showing a pressed/hover state and swallowing
-            # later clicks.
             button.customContextMenuRequested.connect(
-                lambda _pos, n=slot.number: QTimer.singleShot(0, lambda: self._assign_slot(n))
+                lambda _pos, n=slot.number: self._assign_slot(n)
             )
             row, col = divmod(slot.number - 1, GRID_COLUMNS)
             self._grid.addWidget(button, row, col)
@@ -144,14 +137,29 @@ class PresetDeckWidget(QWidget):
     def _on_slot_clicked(self, number: int) -> None:
         slot = self._store.slot(self._category, number)
         if slot.is_empty:
-            QTimer.singleShot(0, lambda: self._assign_slot(number))
+            self._assign_slot(number)
             return
         self.slot_activated.emit(self._category, number)
 
     def _assign_slot(self, number: int) -> None:
+        # .open() (not .exec()) — modal for input, but it doesn't run its
+        # own nested event loop the way exec() does. A right-click-then-
+        # Cancel through exec() left other preset buttons stuck showing a
+        # pressed/hover state and unresponsive to clicks afterward; that
+        # smelled like some interaction between exec()'s nested loop and
+        # this window's own timers/threads (the EQ visualizer repaints
+        # every 40ms, background threads for updates/podcasts, etc.).
+        # open() sidesteps the nested loop entirely, so the result has to
+        # be picked up via the finished signal instead of a return value.
         slot = self._store.slot(self._category, number)
         dialog = PresetEditorDialog(self._category, slot, parent=self)
-        result_code = dialog.exec()
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.finished.connect(
+            lambda result_code: self._on_editor_finished(number, dialog, result_code)
+        )
+        dialog.open()
+
+    def _on_editor_finished(self, number: int, dialog: PresetEditorDialog, result_code: int) -> None:
         if result_code == CLEARED:
             self._store.clear(self._category, number)
         elif result_code == QDialog.Accepted:
