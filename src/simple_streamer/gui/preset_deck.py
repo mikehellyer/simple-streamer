@@ -5,13 +5,11 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
-    QHBoxLayout,
     QGridLayout,
     QLabel,
     QPushButton,
     QInputDialog,
     QFrame,
-    QProgressBar,
     QSizePolicy,
 )
 
@@ -55,10 +53,9 @@ class LegendOverlay(QFrame):
 
 
 class PresetDeckWidget(QWidget):
-    """One tab's worth of UI: a now-playing readout and a 5-wide grid of preset buttons."""
+    """One tab's worth of UI: a 5-wide grid of preset buttons and their legend."""
 
     slot_activated = Signal(str, int)  # category, slot number
-    stop_requested = Signal()
 
     def __init__(self, category: str, store: PresetStore, parent=None):
         super().__init__(parent)
@@ -67,24 +64,6 @@ class PresetDeckWidget(QWidget):
         self._buttons: dict[int, QPushButton] = {}
 
         layout = QVBoxLayout(self)
-
-        now_playing_row = QHBoxLayout()
-        self._now_playing = QLabel("Nothing playing")
-        self._now_playing.setObjectName("nowPlaying")
-        self._now_playing.setStyleSheet("font-size: 16px; font-weight: 600; padding: 8px;")
-        now_playing_row.addWidget(self._now_playing, stretch=1)
-
-        self._stop_button = QPushButton("Stop")
-        self._stop_button.clicked.connect(self.stop_requested)
-        now_playing_row.addWidget(self._stop_button)
-        layout.addLayout(now_playing_row)
-
-        self._progress = QProgressBar()
-        self._progress.setRange(0, 0)  # indeterminate — we don't know how long a lookup takes
-        self._progress.setTextVisible(False)
-        self._progress.setFixedHeight(4)
-        self._progress.hide()
-        layout.addWidget(self._progress)
 
         grid_container = QWidget()
         self._grid = QGridLayout(grid_container)
@@ -152,12 +131,6 @@ class PresetDeckWidget(QWidget):
             self._legend.show()
         else:
             self._legend.hide()
-
-    def set_now_playing(self, text: str) -> None:
-        self._now_playing.setText(text)
-
-    def set_loading(self, loading: bool) -> None:
-        self._progress.setVisible(loading)
 
     def _on_slot_clicked(self, number: int) -> None:
         slot = self._store.slot(self._category, number)

@@ -28,6 +28,7 @@ from simple_streamer.core.self_update import (
     launch_installer,
 )
 from simple_streamer.gui.preset_deck import PresetDeckWidget
+from simple_streamer.gui.player_bar import PlayerBar
 from simple_streamer.gui.update_banner import UpdateBanner
 
 UPDATE_OWNER = "mikehellyer"
@@ -80,7 +81,6 @@ class MainWindow(QMainWindow):
         for category, title in (("radio", "Radio"), ("podcasts", "Podcasts")):
             deck = PresetDeckWidget(category, self._store)
             deck.slot_activated.connect(self._play_slot)
-            deck.stop_requested.connect(self._stop_playback)
             self._tabs.addTab(deck, title)
             self._decks[category] = deck
 
@@ -102,12 +102,16 @@ class MainWindow(QMainWindow):
         self._update_banner = UpdateBanner()
         self._update_banner.update_clicked.connect(self._start_update)
 
+        self._player_bar = PlayerBar()
+        self._player_bar.stop_requested.connect(self._stop_playback)
+
         central = QWidget()
         central_layout = QVBoxLayout(central)
         central_layout.setContentsMargins(0, 0, 0, 0)
-        central_layout.setSpacing(0)
+        central_layout.setSpacing(8)
         central_layout.addWidget(header)
         central_layout.addWidget(self._update_banner)
+        central_layout.addWidget(self._player_bar)
         central_layout.addWidget(self._tabs)
         self.setCentralWidget(central)
 
@@ -158,15 +162,12 @@ class MainWindow(QMainWindow):
 
         self._stop_icy_listener()
         self._now_playing_detail = None
-        for deck in self._decks.values():
-            deck.set_loading(False)
-
         self._active_category = category
         self._active_number = number
-        self._decks[category].set_loading(True)
+        self._player_bar.set_loading(True)
 
         if category == "podcasts":
-            self._decks[category].set_now_playing(f"Finding the latest episode of {slot.label}…")
+            self._player_bar.set_now_playing(f"Finding the latest episode of {slot.label}…")
             self._run_in_background(
                 lambda: latest_episode(slot.url),
                 lambda episode: self._on_episode_resolved(slot, episode),
@@ -175,7 +176,7 @@ class MainWindow(QMainWindow):
             # A handful of stations (Planet Rock) hand out a .pls redirector
             # with a short-lived signed URL inside instead of a stable
             # stream link, so it has to be re-resolved on every play.
-            self._decks[category].set_now_playing(f"Tuning in: {slot.label}…")
+            self._player_bar.set_now_playing(f"Tuning in: {slot.label}…")
             self._run_in_background(
                 lambda: resolve_pls(slot.url),
                 lambda resolved_url: self._on_pls_resolved(category, slot, resolved_url),
@@ -187,8 +188,8 @@ class MainWindow(QMainWindow):
         if self._active_category != "podcasts" or self._active_number != slot.number:
             return  # the user moved on to something else while this was loading
         if episode is None:
-            self._decks["podcasts"].set_now_playing(f"Couldn't load {slot.label} right now")
-            self._decks["podcasts"].set_loading(False)
+            self._player_bar.set_now_playing(f"Couldn't load {slot.label} right now")
+            self._player_bar.set_loading(False)
             return
         self._now_playing_detail = episode.title
         self._start_playback("podcasts", episode.audio_url, slot.label)
@@ -197,15 +198,15 @@ class MainWindow(QMainWindow):
         if self._active_category != category or self._active_number != slot.number:
             return  # the user moved on to something else while this was loading
         if resolved_url is None:
-            self._decks[category].set_now_playing(f"Couldn't load {slot.label} right now")
-            self._decks[category].set_loading(False)
+            self._player_bar.set_now_playing(f"Couldn't load {slot.label} right now")
+            self._player_bar.set_loading(False)
             return
         self._start_playback(category, resolved_url, slot.label)
 
     def _start_playback(self, category: str, url: str, label: str) -> None:
         self._player.setSource(QUrl(url))
         self._player.play()
-        self._decks[category].set_now_playing(f"Tuning in: {label}…")
+        self._player_bar.set_now_playing(f"Tuning in: {label}…")
         if category == "radio":
             self._icy_listener = IcyMetadataListener(url, self._icy_bridge.title_changed.emit)
             self._icy_listener.start()
@@ -223,19 +224,18 @@ class MainWindow(QMainWindow):
 
     def _refresh_now_playing(self) -> None:
         slot = self._store.slot(self._active_category, self._active_number)
-        deck = self._decks[self._active_category]
         if self._now_playing_detail:
-            deck.set_now_playing(f"Now playing: {slot.label} — {self._now_playing_detail}")
+            self._player_bar.set_now_playing(f"Now playing: {slot.label} — {self._now_playing_detail}")
         else:
-            deck.set_now_playing(f"Now playing: {slot.label}")
+            self._player_bar.set_now_playing(f"Now playing: {slot.label}")
 
     def _stop_playback(self) -> None:
         self._player.stop()
         self._stop_icy_listener()
         self._now_playing_detail = None
         if self._active_number is not None:
-            self._decks[self._active_category].set_now_playing("Nothing playing")
-            self._decks[self._active_category].set_loading(False)
+            self._player_bar.set_now_playing("Nothing playing")
+            self._player_bar.set_loading(False)
         # Clearing this also invalidates any podcast/pls resolution still in
         # flight (see the guards above), so it won't start playing
         # something after the user asked for silence.
@@ -244,20 +244,18 @@ class MainWindow(QMainWindow):
     def _on_playback_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
         if self._active_number is None:
             return
-        deck = self._decks[self._active_category]
         if state == QMediaPlayer.PlayingState:
-            deck.set_loading(False)
+            self._player_bar.set_loading(False)
             self._refresh_now_playing()
         elif state == QMediaPlayer.StoppedState:
-            deck.set_loading(False)
-            deck.set_now_playing("Nothing playing")
+            self._player_bar.set_loading(False)
+            self._player_bar.set_now_playing("Nothing playing")
 
     def _on_player_error(self, error, error_string: str) -> None:
         if self._active_number is None:
             return
-        deck = self._decks[self._active_category]
-        deck.set_loading(False)
-        deck.set_now_playing(f"Couldn't play that stream: {error_string}")
+        self._player_bar.set_loading(False)
+        self._player_bar.set_now_playing(f"Couldn't play that stream: {error_string}")
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key_F1 and not event.isAutoRepeat():
