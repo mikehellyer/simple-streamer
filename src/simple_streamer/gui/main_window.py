@@ -86,6 +86,7 @@ class MainWindow(QMainWindow):
         self._player.playbackStateChanged.connect(self._on_playback_state_changed)
         self._player.errorOccurred.connect(self._on_player_error)
         self._player.mediaStatusChanged.connect(self._on_media_status_changed)
+        self._player.positionChanged.connect(self._on_position_changed)
 
         self._visualizer = StereoVisualizer()
         self._audio_buffer_output = QAudioBufferOutput()
@@ -121,6 +122,7 @@ class MainWindow(QMainWindow):
         self._player_bar.play_pause_requested.connect(self._toggle_play_pause)
         self._player_bar.seek_requested.connect(self._seek)
         self._player_bar.episodes_requested.connect(self._browse_episodes)
+        self._player_bar.position_seek_requested.connect(self._seek_to)
 
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -375,6 +377,16 @@ class MainWindow(QMainWindow):
         if duration > 0:
             new_position = min(new_position, duration)
         self._player.setPosition(new_position)
+
+    def _seek_to(self, position_ms: int) -> None:
+        if self._active_number is None:
+            return
+        self._player.setPosition(position_ms)
+
+    def _on_position_changed(self, position_ms: int) -> None:
+        if self._current_episode_audio_url is None:
+            return  # radio — no progress bar showing, nothing to update
+        self._player_bar.set_progress(position_ms, self._player.duration())
 
     def _queue_resume(self, audio_url: str) -> None:
         progress = self._episode_progress.get(audio_url)

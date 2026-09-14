@@ -10,15 +10,25 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar
+from PySide6.QtWidgets import (
+    QFrame,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QProgressBar,
+    QSlider,
+)
 
 from simple_streamer.core.browser_raise import try_raise_browser_window
+from simple_streamer.core.text import format_duration_ms
 
 
 class PlayerBar(QFrame):
     stop_requested = Signal()
     play_pause_requested = Signal()
     seek_requested = Signal(int)  # milliseconds to jump, negative for back
+    position_seek_requested = Signal(int)  # absolute milliseconds, from dragging the progress bar
     episodes_requested = Signal()
 
     SEEK_STEP_MS = 15_000
@@ -71,6 +81,18 @@ class PlayerBar(QFrame):
         top_row.addWidget(self._stop_button)
         outer.addLayout(top_row)
 
+        progress_row = QHBoxLayout()
+        self._is_scrubbing = False
+        self._progress_slider = QSlider(Qt.Horizontal)
+        self._progress_slider.setRange(0, 0)
+        self._progress_slider.sliderPressed.connect(self._on_slider_pressed)
+        self._progress_slider.sliderReleased.connect(self._on_slider_released)
+        progress_row.addWidget(self._progress_slider, stretch=1)
+        self._progress_time_label = QLabel("")
+        self._progress_time_label.setStyleSheet("color: gray; font-size: 11px;")
+        progress_row.addWidget(self._progress_time_label)
+        outer.addLayout(progress_row)
+
         self.set_active(False)
 
         self._progress = QProgressBar()
@@ -105,19 +127,43 @@ class PlayerBar(QFrame):
         if not active:
             self._rewind_button.setEnabled(False)
             self._forward_button.setEnabled(False)
+            self.set_progress(0, 0)
 
     def set_seekable(self, seekable: bool) -> None:
-        """Rewind/fast-forward only make sense for an on-demand podcast
-        episode — a live radio broadcast has nothing to seek into.
+        """Rewind/fast-forward, and the progress/seek bar, only make
+        sense for an on-demand podcast episode — a live radio broadcast
+        has nothing to seek into and no fixed length to show progress
+        against.
         """
         self._rewind_button.setVisible(seekable)
         self._forward_button.setVisible(seekable)
+        self._progress_slider.setVisible(seekable)
+        self._progress_time_label.setVisible(seekable)
         if seekable:
             self._rewind_button.setEnabled(True)
             self._forward_button.setEnabled(True)
 
     def set_playing(self, playing: bool) -> None:
         self._play_pause_button.setText("Pause" if playing else "Play")
+
+    def set_progress(self, position_ms: int, duration_ms: int) -> None:
+        if duration_ms > 0:
+            self._progress_slider.setRange(0, duration_ms)
+            if not self._is_scrubbing:
+                self._progress_slider.setValue(position_ms)
+            self._progress_time_label.setText(
+                f"{format_duration_ms(position_ms)} / {format_duration_ms(duration_ms)}"
+            )
+        else:
+            self._progress_slider.setRange(0, 0)
+            self._progress_time_label.setText("")
+
+    def _on_slider_pressed(self) -> None:
+        self._is_scrubbing = True
+
+    def _on_slider_released(self) -> None:
+        self._is_scrubbing = False
+        self.position_seek_requested.emit(self._progress_slider.value())
 
     def _open_website(self) -> None:
         if self._website_url:
