@@ -64,13 +64,20 @@ def test_launch_installer_linux_prefers_pkexec_apt_over_xdg_open():
     # "Install"/"Upgrade" for an already-installed package name and do
     # nothing useful) — installing directly via apt is deterministic and
     # only prompts for a password once.
+    def fake_which(name):
+        return {"pkexec": "/usr/bin/pkexec", "apt": "/usr/bin/apt"}[name]
+
     with patch("simple_streamer.core.self_update.sys.platform", "linux"), patch(
-        "simple_streamer.core.self_update.shutil.which", return_value="/usr/bin/found"
+        "simple_streamer.core.self_update.shutil.which", side_effect=fake_which
     ), patch("simple_streamer.core.self_update.subprocess.Popen") as mock_popen:
         result = launch_installer("/tmp/simple-streamer_1.2.3_amd64.deb")
 
+    # Absolute paths, not bare "pkexec"/"apt": pkexec resolves the
+    # command it's given using its own restricted environment rather
+    # than the invoking shell's $PATH, and a bare "apt" name can fail to
+    # resolve there (exit 127) even though `apt` works normally.
     mock_popen.assert_called_once_with(
-        ["pkexec", "apt", "install", "-y", "/tmp/simple-streamer_1.2.3_amd64.deb"]
+        ["/usr/bin/pkexec", "/usr/bin/apt", "install", "-y", "/tmp/simple-streamer_1.2.3_amd64.deb"]
     )
     # The caller (main_window.py) waits on this before quitting, on
     # Linux, so quitting can't kill the pkexec password prompt before

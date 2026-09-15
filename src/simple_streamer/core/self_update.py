@@ -94,6 +94,13 @@ def launch_installer(path: Path) -> Optional[subprocess.Popen]:
         # reinstall (and a second password prompt). Installing directly
         # via apt (through pkexec for a graphical privilege prompt)
         # upgrades in place with a single prompt instead.
-        if shutil.which("pkexec") and shutil.which("apt"):
-            return subprocess.Popen(["pkexec", "apt", "install", "-y", path])
+        pkexec_path = shutil.which("pkexec")
+        apt_path = shutil.which("apt")
+        if pkexec_path and apt_path:
+            # pkexec resolves the command it's given on its own, using a
+            # restricted environment rather than the invoking shell's
+            # $PATH — a bare "apt" can fail there (exit 127, "command
+            # not found") even though `apt` works fine normally. Passing
+            # the already-resolved absolute path sidesteps that.
+            return subprocess.Popen([pkexec_path, apt_path, "install", "-y", path])
         return subprocess.Popen(["xdg-open", path])
