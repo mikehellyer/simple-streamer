@@ -20,6 +20,11 @@ class UpdateBanner(QWidget):
 
         self._label = QLabel()
         self._label.setStyleSheet(f"color: {RED}; font-weight: 600;")
+        # set_status() can now show a failed installer's actual stderr
+        # text (see MainWindow._on_installer_finished) — unbounded
+        # length, unlike the short fixed messages this label used to
+        # only ever show.
+        self._label.setWordWrap(True)
         layout.addWidget(self._label, stretch=1)
 
         self._update_button = QPushButton("Update")

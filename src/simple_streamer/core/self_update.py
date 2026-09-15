@@ -102,5 +102,16 @@ def launch_installer(path: Path) -> Optional[subprocess.Popen]:
             # $PATH — a bare "apt" can fail there (exit 127, "command
             # not found") even though `apt` works fine normally. Passing
             # the already-resolved absolute path sidesteps that.
-            return subprocess.Popen([pkexec_path, apt_path, "install", "-y", path])
+            #
+            # stderr is piped (not stdout — apt's stdout can be large,
+            # and nothing reads it while this process is still running,
+            # risking a full-pipe deadlock; stderr from a failed pkexec/
+            # apt is always short) so a failure can show pkexec/apt's
+            # actual error text instead of just a bare exit code — an
+            # exit code alone hasn't been enough to diagnose this so far.
+            return subprocess.Popen(
+                [pkexec_path, apt_path, "install", "-y", path],
+                stderr=subprocess.PIPE,
+                text=True,
+            )
         return subprocess.Popen(["xdg-open", path])

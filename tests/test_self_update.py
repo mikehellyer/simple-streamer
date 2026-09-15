@@ -1,4 +1,5 @@
 import io
+import subprocess
 from unittest.mock import patch
 
 from simple_streamer.core.self_update import (
@@ -75,9 +76,12 @@ def test_launch_installer_linux_prefers_pkexec_apt_over_xdg_open():
     # Absolute paths, not bare "pkexec"/"apt": pkexec resolves the
     # command it's given using its own restricted environment rather
     # than the invoking shell's $PATH, and a bare "apt" name can fail to
-    # resolve there (exit 127) even though `apt` works normally.
+    # resolve there (exit 127) even though `apt` works normally. stderr
+    # is piped so a failure can show pkexec/apt's actual error text.
     mock_popen.assert_called_once_with(
-        ["/usr/bin/pkexec", "/usr/bin/apt", "install", "-y", "/tmp/simple-streamer_1.2.3_amd64.deb"]
+        ["/usr/bin/pkexec", "/usr/bin/apt", "install", "-y", "/tmp/simple-streamer_1.2.3_amd64.deb"],
+        stderr=subprocess.PIPE,
+        text=True,
     )
     # The caller (main_window.py) waits on this before quitting, on
     # Linux, so quitting can't kill the pkexec password prompt before

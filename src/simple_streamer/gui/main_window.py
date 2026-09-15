@@ -523,14 +523,24 @@ class MainWindow(QMainWindow):
             # method, which _run_in_background's Qt.QueuedConnection
             # needs to marshal onto the main thread correctly.
             self._run_in_background(
-                lambda: (path, process.wait()),
+                lambda: (path, self._wait_for_installer(process)),
                 self._on_installer_finished,
             )
         else:
             QTimer.singleShot(1500, self.close)
 
+    @staticmethod
+    def _wait_for_installer(process) -> tuple[int, str]:
+        """Runs on the background thread — blocks on process.wait(), then
+        reads whatever the process wrote to stderr (only piped for the
+        pkexec/apt path; None, hence "", for xdg-open).
+        """
+        returncode = process.wait()
+        stderr_text = process.stderr.read().strip() if process.stderr is not None else ""
+        return returncode, stderr_text
+
     def _on_installer_finished(self, result) -> None:
-        path, returncode = result
+        path, (returncode, stderr_text) = result
         if returncode == 0:
             self.close()
             return
@@ -538,8 +548,9 @@ class MainWindow(QMainWindow):
         # prompt, no polkit agent running on this desktop, wrong
         # password, etc. Quitting anyway here is exactly the bug this
         # replaces: it looked like clicking Update did nothing.
+        detail = f" — {stderr_text}" if stderr_text else ""
         self._update_banner.set_status(
-            f"Update didn't install (exit code {returncode}) — "
+            f"Update didn't install (exit code {returncode}){detail} — "
             f"you can install it manually: {path}"
         )
         self._update_banner.set_busy(False)
