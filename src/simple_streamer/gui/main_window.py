@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
 
 from simple_streamer import __version__
 from simple_streamer.core.presets import PresetStore
-from simple_streamer.core.podcasts import latest_episode
 from simple_streamer.core.episode_progress import EpisodeProgressStore
 from simple_streamer.core.settings import SettingsStore
 from simple_streamer.core.pls_resolver import resolve_pls
@@ -261,13 +260,11 @@ class MainWindow(QMainWindow):
         category = self._active_category
         slot = self._store.slot(category, self._active_number)
 
-        if category == "podcasts":
-            self._player_bar.set_now_playing(f"Finding the latest episode of {slot.label}…")
-            self._run_in_background(
-                lambda: latest_episode(url),
-                lambda episode: self._on_episode_resolved(attempt, episode),
-            )
-        elif urlparse(url).path.endswith(".pls"):
+        # Only ever radio here — clicking a podcast preset goes straight
+        # to the episode picker (PresetDeckWidget.browse_episodes) rather
+        # than emitting slot_activated at all, so this candidate-resolution
+        # path (fallback URLs, .pls re-resolution) never sees "podcasts".
+        if urlparse(url).path.endswith(".pls"):
             # A handful of stations (Planet Rock) hand out a .pls redirector
             # with a short-lived signed URL inside instead of a stable
             # stream link, so it has to be re-resolved on every play.
@@ -278,17 +275,6 @@ class MainWindow(QMainWindow):
             )
         else:
             self._start_playback(category, url, slot.label, attempt)
-
-    def _on_episode_resolved(self, attempt: int, episode) -> None:
-        if attempt != self._playback_attempt:
-            return  # the user moved on to something else while this was loading
-        if episode is None:
-            self._try_next_candidate(attempt)
-            return
-        self._now_playing_detail = episode.title
-        slot = self._store.slot(self._active_category, self._active_number)
-        self._queue_resume(episode.audio_url)
-        self._start_playback("podcasts", episode.audio_url, slot.label, attempt)
 
     def _on_pls_resolved(self, attempt: int, resolved_url: str | None) -> None:
         if attempt != self._playback_attempt:

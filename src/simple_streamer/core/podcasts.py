@@ -1,9 +1,9 @@
 """Resolve a podcast's RSS feed to its recent episodes.
 
 Presets in the Podcasts deck store a feed URL rather than a fixed audio
-file, so playing a slot always looks at whatever the show has actually
-published — either just the latest episode, or a short list to pick from
-(see gui/episode_list_dialog.py).
+file, so clicking a slot always looks at what the show has actually
+published — a short list to pick from (see gui/episode_list_dialog.py),
+rather than a single fixed file.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from typing import Optional
 from simple_streamer.core.http import SSL_CONTEXT
 
 FEED_TIMEOUT_SECONDS = 8
-DEFAULT_RECENT_LIMIT = 6
+DEFAULT_RECENT_LIMIT = 10
 _ITUNES_NS = "http://www.itunes.com/dtds/podcast-1.0.dtd"
 
 
@@ -25,12 +25,6 @@ class Episode:
     audio_url: str
     published: str = ""  # raw RSS pubDate, best-effort display only
     duration_seconds: Optional[int] = None
-
-
-def latest_episode(feed_url: str) -> Optional[Episode]:
-    """Fetch an RSS feed and return its most recent episode, or None on any failure."""
-    episodes = recent_episodes(feed_url, limit=1)
-    return episodes[0] if episodes else None
 
 
 def recent_episodes(feed_url: str, limit: int = DEFAULT_RECENT_LIMIT) -> list[Episode]:

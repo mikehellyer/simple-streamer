@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from simple_streamer.core.podcasts import latest_episode, recent_episodes
+from simple_streamer.core.podcasts import recent_episodes
 
 SAMPLE_FEED = b"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -60,29 +60,9 @@ class _Response:
         return self._body
 
 
-def test_latest_episode_returns_the_first_item():
-    with patch("urllib.request.urlopen", return_value=_Response(SAMPLE_FEED)):
-        episode = latest_episode("https://example.com/feed.xml")
-
-    assert episode is not None
-    assert episode.title == "548: Before Photoshop"
-    assert episode.audio_url == "https://example.com/548.mp3"
-
-
-def test_latest_episode_returns_none_when_unreachable():
-    with patch("urllib.request.urlopen", side_effect=OSError("network down")):
-        assert latest_episode("https://example.com/feed.xml") is None
-
-
-def test_latest_episode_returns_none_for_malformed_xml():
+def test_recent_episodes_returns_none_for_malformed_xml():
     with patch("urllib.request.urlopen", return_value=_Response(b"not xml")):
-        assert latest_episode("https://example.com/feed.xml") is None
-
-
-def test_latest_episode_returns_none_when_item_has_no_enclosure():
-    feed = b"""<rss><channel><title>Show</title><item><title>No audio</title></item></channel></rss>"""
-    with patch("urllib.request.urlopen", return_value=_Response(feed)):
-        assert latest_episode("https://example.com/feed.xml") is None
+        assert recent_episodes("https://example.com/feed.xml") == []
 
 
 def test_recent_episodes_returns_up_to_the_limit_newest_first():

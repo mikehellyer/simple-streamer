@@ -8,9 +8,11 @@ itself as soon as a choice is made.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -24,6 +26,15 @@ from PySide6.QtWidgets import (
 from simple_streamer.core.episode_progress import EpisodeProgress
 from simple_streamer.core.podcasts import Episode
 from simple_streamer.core.text import format_duration_ms, format_pub_date
+
+LISTENED_TEXT_COLOR = QColor(150, 150, 150)
+
+
+@dataclass(frozen=True)
+class EpisodeEntry:
+    episode: Episode
+    progress: Optional[EpisodeProgress]
+    completed: bool
 
 
 class EpisodeListDialog(QDialog):
@@ -68,25 +79,35 @@ class EpisodeListDialog(QDialog):
         buttons.addButton(self._play_button, QDialogButtonBox.AcceptRole)
         layout.addWidget(buttons)
 
-    def show_episodes(self, episodes: list[tuple[Episode, Optional[EpisodeProgress]]]) -> None:
+    def show_episodes(self, entries: list[EpisodeEntry]) -> None:
         self._list.clear()
-        if not episodes:
+        if not entries:
             self._status.setText(
                 "Couldn't load episodes for this podcast — check the feed is still online."
             )
             return
 
         self._status.setText("Pick an episode:")
-        for episode, progress in episodes:
-            item = QListWidgetItem(self._describe(episode, progress))
-            item.setData(Qt.UserRole, episode)
+        for entry in entries:
+            item = QListWidgetItem(self._describe(entry))
+            item.setData(Qt.UserRole, entry.episode)
+            if entry.completed:
+                # Dimmed text is the primary cue, "✓ Listened" (in
+                # _describe) the explicit one — a fully-listened episode
+                # should read as already-done at a glance without being
+                # illegible or looking disabled; it's still playable.
+                item.setForeground(LISTENED_TEXT_COLOR)
             self._list.addItem(item)
         self._list.setCurrentRow(0)
 
     @staticmethod
-    def _describe(episode: Episode, progress: Optional[EpisodeProgress]) -> str:
+    def _describe(entry: EpisodeEntry) -> str:
+        episode, progress = entry.episode, entry.progress
         text = episode.title
         meta = []
+
+        if entry.completed:
+            meta.append("✓ Listened")
 
         date_str = format_pub_date(episode.published)
         if date_str:

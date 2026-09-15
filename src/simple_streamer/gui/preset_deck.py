@@ -28,7 +28,7 @@ from simple_streamer.core.podcasts import recent_episodes
 from simple_streamer.gui.preset_editor import PresetEditorDialog, CLEARED
 from simple_streamer.gui.image_search_dialog import ImageSearchDialog
 from simple_streamer.gui.preset_search_dialog import PresetSearchDialog
-from simple_streamer.gui.episode_list_dialog import EpisodeListDialog
+from simple_streamer.gui.episode_list_dialog import EpisodeListDialog, EpisodeEntry
 
 GRID_COLUMNS = 5
 BUTTON_ICON_SIZE = 48
@@ -177,6 +177,12 @@ class PresetDeckWidget(QWidget):
         slot = self._store.slot(self._category, number)
         if slot.is_empty:
             self._assign_slot(number)
+            return
+        if self._category == "podcasts":
+            # Podcasts don't auto-play the latest episode on click
+            # anymore — straight to picking one, since "whatever's
+            # newest" often isn't what the user actually wants next.
+            self.browse_episodes(number)
             return
         self.slot_activated.emit(self._category, number)
 
@@ -395,8 +401,14 @@ class PresetDeckWidget(QWidget):
     def _on_episodes_fetched(self, result) -> None:
         dialog, episodes = result
         progress_for = self._episode_progress.get if self._episode_progress else lambda _url: None
-        paired = [(episode, progress_for(episode.audio_url)) for episode in episodes]
+        completed_for = (
+            self._episode_progress.is_completed if self._episode_progress else lambda _url: False
+        )
+        entries = [
+            EpisodeEntry(episode, progress_for(episode.audio_url), completed_for(episode.audio_url))
+            for episode in episodes
+        ]
         try:
-            dialog.show_episodes(paired)
+            dialog.show_episodes(entries)
         except RuntimeError:
             pass  # the user already closed the dialog before results arrived
