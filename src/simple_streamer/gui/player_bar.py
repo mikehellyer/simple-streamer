@@ -16,12 +16,12 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QProgressBar,
     QSlider,
 )
 
 from simple_streamer.core.browser_raise import try_raise_browser_window
 from simple_streamer.core.text import format_duration_ms
+from simple_streamer.gui.loading_indicator import LoadingIndicator
 
 
 class PlayerBar(QFrame):
@@ -107,18 +107,14 @@ class PlayerBar(QFrame):
 
         self.set_active(False)
 
-        self._progress = QProgressBar()
-        self._progress.setRange(0, 0)  # indeterminate — we don't know how long a lookup takes
-        self._progress.setTextVisible(False)
-        self._progress.setFixedHeight(4)
-        self._progress.hide()
+        self._progress = LoadingIndicator()
         outer.addWidget(self._progress)
 
     def set_now_playing(self, text: str) -> None:
         self._now_playing.setText(text)
 
     def set_loading(self, loading: bool) -> None:
-        self._progress.setVisible(loading)
+        self._progress.set_loading(loading)
 
     def set_website(self, url: str) -> None:
         self._website_url = url or ""

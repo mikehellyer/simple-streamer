@@ -365,6 +365,12 @@ class MainWindow(QMainWindow):
         if self._player.playbackState() == QMediaPlayer.PlayingState:
             self._save_current_progress()
             self._player.pause()
+            # Every other path that stops audio flowing (stop, switching
+            # presets, a failed source) clears the EQ meter — pause was
+            # the one gap, left showing whatever bars happened to be lit
+            # the instant playback froze until the decay ballistics
+            # eventually faded them out on their own.
+            self._visualizer.clear()
         else:
             self._player.play()
 
@@ -428,6 +434,7 @@ class MainWindow(QMainWindow):
         self._visualizer.clear()
         self._playback_attempt += 1
         self._remaining_candidates = []
+        self._player_bar.set_loading(True)
         self._player_bar.set_website(slot.website)
         self._queue_resume(episode.audio_url)
         self._start_playback("podcasts", episode.audio_url, slot.label, self._playback_attempt)
