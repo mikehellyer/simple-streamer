@@ -71,6 +71,29 @@ def test_recent_episodes_returns_up_to_the_limit_newest_first():
     assert [e.title for e in episodes] == ["548: Before Photoshop"]
 
 
+def _feed_with_episodes(count: int) -> bytes:
+    items = "".join(
+        f'<item><title>Episode {n}</title>'
+        f'<enclosure url="https://example.com/{n}.mp3" type="audio/mpeg"/></item>'
+        for n in range(count, 0, -1)
+    )
+    return f"<rss><channel>{items}</channel></rss>".encode()
+
+
+def test_recent_episodes_defaults_to_the_30_most_recent():
+    with patch("urllib.request.urlopen", return_value=_Response(_feed_with_episodes(45))):
+        episodes = recent_episodes("https://example.com/feed.xml")
+    assert len(episodes) == 30
+    assert episodes[0].title == "Episode 45"
+    assert episodes[-1].title == "Episode 16"
+
+
+def test_recent_episodes_returns_all_when_feed_has_fewer_than_the_default():
+    with patch("urllib.request.urlopen", return_value=_Response(_feed_with_episodes(12))):
+        episodes = recent_episodes("https://example.com/feed.xml")
+    assert len(episodes) == 12
+
+
 def test_recent_episodes_returns_none_when_unreachable():
     with patch("urllib.request.urlopen", side_effect=OSError("network down")):
         assert recent_episodes("https://example.com/feed.xml") == []

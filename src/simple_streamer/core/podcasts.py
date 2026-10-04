@@ -15,7 +15,7 @@ from typing import Optional
 from simple_streamer.core.http import SSL_CONTEXT
 
 FEED_TIMEOUT_SECONDS = 8
-DEFAULT_RECENT_LIMIT = 10
+DEFAULT_RECENT_LIMIT = 30
 _ITUNES_NS = "http://www.itunes.com/dtds/podcast-1.0.dtd"
 
 
