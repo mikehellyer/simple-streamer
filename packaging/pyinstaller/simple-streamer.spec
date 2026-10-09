@@ -8,6 +8,18 @@ import re
 import sys
 from pathlib import Path
 
+# PySide6 6.12 drops a reference to None on every call to a method that
+# returns nothing (QSlider.setValue, QLabel.setText, …). Before Python
+# 3.12 None can actually be freed, so frequent UI updates (the progress
+# bar, the visualizer) used them all up within minutes and the app died
+# with "Fatal Python error: none_dealloc". From 3.12 None is immortal
+# and the bug is harmless — refuse to build a frozen app on anything older.
+if sys.version_info < (3, 12):
+    raise SystemExit(
+        f"Simple-Streamer must be built with Python 3.12+ (this is {sys.version.split()[0]}) "
+        "— see the comment in simple-streamer.spec"
+    )
+
 root = Path(SPECPATH).resolve().parent.parent
 src = root / "src"
 icons = root / "packaging" / "icons"
