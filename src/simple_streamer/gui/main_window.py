@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from PySide6.QtCore import QUrl, Qt, QObject, QThread, Signal, QTimer
+from PySide6.QtCore import QUrl, Qt, QObject, Signal, QTimer
 from PySide6.QtGui import QKeyEvent, QIcon, QPixmap
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QAudioBufferOutput
 from PySide6.QtWidgets import (
@@ -34,6 +34,7 @@ from simple_streamer.core.self_update import (
 from simple_streamer.gui.preset_deck import PresetDeckWidget
 from simple_streamer.gui.player_bar import PlayerBar
 from simple_streamer.gui.update_banner import UpdateBanner
+from simple_streamer.gui.workers import BackgroundRunner
 from simple_streamer.gui.audio_visualizer import StereoVisualizer
 from simple_streamer.gui.bbc_now_playing_poller import BbcNowPlayingPoller
 from simple_streamer.gui.audio_glow import AudioGlow
@@ -45,19 +46,6 @@ UPDATE_REPO = "simple-streamer"
 BACKGROUND_JOIN_TIMEOUT_MS = (API_TIMEOUT_SECONDS + 1) * 1000
 ICON_PATH = Path(__file__).parent / "resources" / "icon.png"
 WORDMARK_PATH = Path(__file__).parent / "resources" / "wordmark.png"
-
-
-class _CallableWorker(QObject):
-    """Runs a zero-arg callable on a background thread and emits its result."""
-
-    finished = Signal(object)
-
-    def __init__(self, fn):
-        super().__init__()
-        self._fn = fn
-
-    def run(self) -> None:
-        self.finished.emit(self._fn())
 
 
 class _IcySignalBridge(QObject):
@@ -79,8 +67,7 @@ class MainWindow(QMainWindow):
         self._store = PresetStore()
         self._episode_progress = EpisodeProgressStore()
         self._settings = SettingsStore()
-        self._background_threads: list[QThread] = []
-        self._background_workers: list[_CallableWorker] = []
+        self._background = BackgroundRunner(self)
 
         self._audio_output = QAudioOutput()
         self._player = QMediaPlayer()
@@ -197,36 +184,7 @@ class MainWindow(QMainWindow):
 
     def _run_in_background(self, fn, on_finished) -> None:
         """Run fn() off the GUI thread; on_finished(result) runs back on it."""
-        thread = QThread()
-        worker = _CallableWorker(fn)
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        # Explicit QueuedConnection, not Auto: Auto only recognizes it needs
-        # to marshal onto the receiver's thread when the receiver is a
-        # QObject method, since that's how it looks up thread affinity. A
-        # plain lambda has no such receiver, so Auto runs it directly on
-        # this worker thread instead — harmless for a callback that only
-        # mutates existing widgets, but fatal the moment one constructs a
-        # new widget (macOS aborts outright: "NSWindow should only be
-        # instantiated on the main thread!").
-        worker.finished.connect(on_finished, Qt.QueuedConnection)
-        worker.finished.connect(thread.quit)
-
-        def _cleanup():
-            self._background_threads.remove(thread)
-            self._background_workers.remove(worker)
-
-        thread.finished.connect(_cleanup)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        # Both must be kept referenced from self — nothing else holds a
-        # Python reference to worker/thread while the thread runs, and
-        # Qt's C++-side connections alone don't stop them being garbage
-        # collected mid-flight (the thread then hangs forever waiting on
-        # a slot bound to an object that no longer exists).
-        self._background_threads.append(thread)
-        self._background_workers.append(worker)
-        thread.start()
+        self._background.run(fn, on_finished)
 
     def _play_slot(self, category: str, number: int) -> None:
         slot = self._store.slot(category, number)
@@ -524,11 +482,7 @@ class MainWindow(QMainWindow):
             # fallback) to actually finish before quitting — quitting
             # immediately can kill its password prompt before it's
             # answered, since the desktop session ties a launched app's
-            # child processes to its own lifetime. Bundling path into the
-            # tuple fn returns (rather than a lambda around the bound
-            # on_finished method) keeps on_finished a genuine bound
-            # method, which _run_in_background's Qt.QueuedConnection
-            # needs to marshal onto the main thread correctly.
+            # child processes to its own lifetime.
             self._run_in_background(
                 lambda: (path, self._wait_for_installer(process)),
                 self._on_installer_finished,
@@ -572,7 +526,5 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         self._save_current_progress()
         self._stop_metadata_watchers()
-        for thread in list(self._background_threads):
-            thread.quit()
-            thread.wait(BACKGROUND_JOIN_TIMEOUT_MS)
+        self._background.shutdown(BACKGROUND_JOIN_TIMEOUT_MS)
         super().closeEvent(event)

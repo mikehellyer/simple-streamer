@@ -255,15 +255,6 @@ class PresetDeckWidget(QWidget):
         dialog.open()
         category = self._category
         label = slot.label
-        # on_finished must be a plain bound method, not a lambda — Qt only
-        # recognizes it has to marshal the callback onto the main thread
-        # when it can see a real QObject receiver (via a bound method's
-        # __self__); a lambda wrapper hides that, so the callback below
-        # would otherwise run on the worker thread and silently fail to
-        # add its new buttons to a grid owned by the main thread (see the
-        # Qt.QueuedConnection comment in MainWindow._run_in_background).
-        # Bundling dialog+results into one tuple return value avoids
-        # needing a lambda here to bind dialog as an extra argument.
         self._run_in_background(
             lambda: (dialog, search_and_fetch(category, label)),
             self._on_image_results,
@@ -298,8 +289,7 @@ class PresetDeckWidget(QWidget):
         dialog.setAttribute(Qt.WA_DeleteOnClose)
 
         # Both signals are only ever emitted from user interaction inside
-        # the dialog (typing/clicking), so — unlike the _run_in_background
-        # callbacks below — a lambda here is fine: it always runs on the
+        # the dialog (typing/clicking), so these lambdas always run on the
         # main thread already, nothing to marshal.
         dialog.search_requested.connect(
             lambda query: self._run_in_background(
