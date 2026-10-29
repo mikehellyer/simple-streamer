@@ -246,6 +246,13 @@ class MainWindow(QMainWindow):
     def _start_playback(self, category: str, url: str, label: str, attempt: int) -> None:
         self._current_attempt_for_player = attempt
         self._current_episode_audio_url = url if category == "podcasts" else None
+        # QMediaPlayer ignores setSource() with the URL it already has, so
+        # replaying the station just stopped would only call play() on the
+        # old, stopped pipeline — which an HLS stream (every BBC preset)
+        # never recovers from: PlayingState, but silence. Clearing it first
+        # forces a genuine reload through LoadingMedia every time.
+        if self._player.source() == QUrl(url):
+            self._player.setSource(QUrl())
         self._player.setSource(QUrl(url))
         self._player.play()
         self._player_bar.set_now_playing(f"Tuning in: {label}…")
