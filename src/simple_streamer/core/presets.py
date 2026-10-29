@@ -107,6 +107,21 @@ DEFAULT_PRESETS: dict[str, list[DefaultPreset]] = {
             "https://rogers-hls.leanstream.co/rogers/tor590.stream/icy",
             website="https://www.sportsnet.ca/590/",
         ),
+        DefaultPreset(
+            "MFR",
+            "https://stream-mz.hellorayo.co.uk/mfrfm.aac?aw_0_1st.skey=1602676850",
+            website="https://planetradio.co.uk/mfr/",
+            fallback_urls=("https://hls-mz.hellorayo.co.uk/mfrfm.aac/playlist.m3u8",),
+        ),
+        # The old MFR 2 AM stream, which now carries Greatest Hits Radio
+        # (North East Scotland) — radio-browser.info doesn't list the
+        # regional GHR stations, so station search can't find it.
+        DefaultPreset(
+            "MFR 2 (Greatest Hits)",
+            "https://stream-mz.hellorayo.co.uk/mfram.aac?aw_0_1st.skey=1602676850",
+            website="https://planetradio.co.uk/greatest-hits/",
+            fallback_urls=("https://hls-mz.hellorayo.co.uk/mfram.aac/playlist.m3u8",),
+        ),
     ],
     "podcasts": [
         DefaultPreset(
