@@ -155,6 +155,42 @@ def test_a_website_added_later_backfills_onto_an_already_assigned_slot(tmp_path,
     assert store.slot("radio", 1).website == entry.website
 
 
+def _radio_default_with_replaced_url():
+    for number, entry in enumerate(DEFAULT_PRESETS["radio"], start=1):
+        if entry.replaces_urls:
+            return number, entry
+    raise AssertionError("no radio default has replaces_urls")
+
+
+def test_a_slot_on_a_retired_default_url_is_upgraded(tmp_path, monkeypatch):
+    # e.g. BBC Radio Scotland moving off the worldwide feed: an install
+    # that saved the old default URL picks up the new one on startup.
+    target = tmp_path / "presets.json"
+    monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
+    number, entry = _radio_default_with_replaced_url()
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck[number - 1] = {"number": number, "label": entry.label, "url": entry.replaces_urls[0]}
+    target.write_text(json.dumps({"radio": old_deck, "podcasts": []}))
+
+    store = PresetStore()
+
+    assert store.slot("radio", number).url == entry.url
+    assert store.slot("radio", number).fallback_urls == list(entry.fallback_urls)
+
+
+def test_url_upgrade_leaves_a_slot_the_user_pointed_elsewhere(tmp_path, monkeypatch):
+    target = tmp_path / "presets.json"
+    monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
+    number, entry = _radio_default_with_replaced_url()
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck[number - 1] = {"number": number, "label": entry.label, "url": "https://my.own/stream"}
+    target.write_text(json.dumps({"radio": old_deck, "podcasts": []}))
+
+    store = PresetStore()
+
+    assert store.slot("radio", number).url == "https://my.own/stream"
+
+
 def test_website_backfill_skips_a_slot_the_user_repurposed(tmp_path, monkeypatch):
     # Same slot number/category as a default, but a different label — the
     # user has clearly pointed this slot at something else, so it must not

@@ -24,6 +24,11 @@ class DefaultPreset:
     website: str = ""
     # Tried in order, after `url`, if the main stream/feed fails.
     fallback_urls: tuple[str, ...] = ()
+    # Earlier default URLs for this slot. A saved slot still pointing at
+    # one of these is upgraded to `url`/`fallback_urls` on startup (see
+    # PresetStore._backfill_new_default_fields) — one the user changed
+    # won't match, so it's left alone.
+    replaces_urls: tuple[str, ...] = ()
 
 
 # Seeded into a fresh preset store (first run, no saved presets.json yet).
@@ -33,30 +38,45 @@ class DefaultPreset:
 # latest episode at play time (see core/podcasts.py).
 DEFAULT_PRESETS: dict[str, list[DefaultPreset]] = {
     "radio": [
+        # BBC stations use the UK pool directly: the lsn.lv resolver hands
+        # out the worldwide pool, which swaps out live sport commentary
+        # (5 Live football, Sportsound) for rights reasons. The UK pool
+        # only plays from a UK connection, so the resolver stays as a
+        # fallback — no sport abroad, but not silence.
         DefaultPreset(
             "BBC Radio 1",
-            "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_one&bitrate=320000",
+            "http://as-hls-uk-live.akamaized.net/pool_01505109/live/uk/bbc_radio_one/bbc_radio_one.isml/bbc_radio_one-audio%3d320000.norewind.m3u8",
             website="https://www.bbc.co.uk/radio1",
+            fallback_urls=("https://lsn.lv/bbcradio.m3u8?station=bbc_radio_one&bitrate=320000",),
+            replaces_urls=("https://lsn.lv/bbcradio.m3u8?station=bbc_radio_one&bitrate=320000",),
         ),
         DefaultPreset(
             "BBC Radio 2",
-            "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_two&bitrate=320000",
+            "http://as-hls-uk-live.akamaized.net/pool_74208725/live/uk/bbc_radio_two/bbc_radio_two.isml/bbc_radio_two-audio%3d320000.norewind.m3u8",
             website="https://www.bbc.co.uk/radio2",
+            fallback_urls=("https://lsn.lv/bbcradio.m3u8?station=bbc_radio_two&bitrate=320000",),
+            replaces_urls=("https://lsn.lv/bbcradio.m3u8?station=bbc_radio_two&bitrate=320000",),
         ),
         DefaultPreset(
             "BBC Radio 3",
-            "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_three&bitrate=320000",
+            "http://as-hls-uk-live.akamaized.net/pool_23461179/live/uk/bbc_radio_three/bbc_radio_three.isml/bbc_radio_three-audio%3d320000.norewind.m3u8",
             website="https://www.bbc.co.uk/radio3",
+            fallback_urls=("https://lsn.lv/bbcradio.m3u8?station=bbc_radio_three&bitrate=320000",),
+            replaces_urls=("https://lsn.lv/bbcradio.m3u8?station=bbc_radio_three&bitrate=320000",),
         ),
         DefaultPreset(
             "BBC Radio 4",
-            "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_fourfm&bitrate=320000",
+            "http://as-hls-uk-live.akamaized.net/pool_55057080/live/uk/bbc_radio_fourfm/bbc_radio_fourfm.isml/bbc_radio_fourfm-audio%3d320000.norewind.m3u8",
             website="https://www.bbc.co.uk/radio4",
+            fallback_urls=("https://lsn.lv/bbcradio.m3u8?station=bbc_radio_fourfm&bitrate=320000",),
+            replaces_urls=("https://lsn.lv/bbcradio.m3u8?station=bbc_radio_fourfm&bitrate=320000",),
         ),
         DefaultPreset(
             "BBC Radio 5 Live",
-            "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=320000",
+            "http://as-hls-uk-live.akamaized.net/pool_89021708/live/uk/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio%3d320000.norewind.m3u8",
             website="https://www.bbc.co.uk/5live",
+            fallback_urls=("https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=320000",),
+            replaces_urls=("https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=320000",),
         ),
         DefaultPreset(
             "BBC Radio 5 Live Sports Extra",
@@ -74,8 +94,14 @@ DEFAULT_PRESETS: dict[str, list[DefaultPreset]] = {
         ),
         DefaultPreset(
             "BBC Radio Scotland",
-            "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_scotland_fm&bitrate=320000",
+            "http://as-hls-uk-live.akamaized.net/pool_43322914/live/uk/bbc_radio_scotland_fm/bbc_radio_scotland_fm.isml/bbc_radio_scotland_fm-audio%3d320000.norewind.m3u8",
             website="https://www.bbc.co.uk/radioscotland",
+            fallback_urls=(
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_scotland_fm&bitrate=320000",
+            ),
+            replaces_urls=(
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_scotland_fm&bitrate=320000",
+            ),
         ),
         DefaultPreset(
             "talkSPORT",
@@ -233,6 +259,9 @@ class PresetStore:
                 slot = self.slot(category, number)
                 if slot.is_empty or slot.label != entry.label:
                     continue
+                if slot.url in entry.replaces_urls:
+                    slot.url = entry.url
+                    slot.fallback_urls = list(entry.fallback_urls)
                 if not slot.website and entry.website:
                     slot.website = entry.website
                 if not slot.fallback_urls and entry.fallback_urls:
