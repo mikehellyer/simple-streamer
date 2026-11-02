@@ -181,3 +181,65 @@ def test_a_single_page_export_stays_readable_by_older_versions(tmp_path):
     source.add_page("podcasts")
     export_presets(source, export_file)
     assert json.loads(export_file.read_text())["version"] == 2
+
+
+def _schedule(directory: Path):
+    from simple_streamer.core.schedule import ScheduleStore
+    directory.mkdir(parents=True, exist_ok=True)
+    return ScheduleStore(directory / "schedule.json")
+
+
+def _routine():
+    from simple_streamer.core.schedule import ScheduleItem
+    return [
+        ScheduleItem([0, 1, 2, 3, 4], "10:00", "radio", "6 Music", "https://example.com/6", end="13:00",
+                     note="Lauren Laverne"),
+        ScheduleItem([0], "14:00", "podcasts", "More or Less", "https://example.com/mol.rss", enabled=False),
+    ]
+
+
+def test_the_schedule_travels_with_the_presets(tmp_path):
+    source, source_schedule = _store(tmp_path / "a"), _schedule(tmp_path / "a")
+    source_schedule.items = _routine()
+    export_file = tmp_path / "presets.ssp.json"
+    export_presets(source, export_file, source_schedule)
+
+    target, target_schedule = _store(tmp_path / "b"), _schedule(tmp_path / "b")
+    imported = import_presets(target, export_file, target_schedule)
+
+    assert imported is True
+    reloaded = _schedule(tmp_path / "b")
+    assert [(i.label, i.start, i.end, i.note, i.enabled) for i in reloaded.items] == [
+        ("6 Music", "10:00", "13:00", "Lauren Laverne", True),
+        ("More or Less", "14:00", "", "", False),
+    ]
+
+
+def test_an_export_without_a_schedule_leaves_the_current_one_alone(tmp_path):
+    source = _store(tmp_path / "a")
+    export_file = tmp_path / "presets.ssp.json"
+    export_presets(source, export_file)  # e.g. made by v0.11.11–v0.11.14
+    target, target_schedule = _store(tmp_path / "b"), _schedule(tmp_path / "b")
+    target_schedule.items = _routine()
+    target_schedule.save()
+
+    assert import_presets(target, export_file, target_schedule) is False
+    assert len(_schedule(tmp_path / "b").items) == 2
+
+
+def test_a_damaged_schedule_rejects_the_whole_file(tmp_path):
+    source, source_schedule = _store(tmp_path / "a"), _schedule(tmp_path / "a")
+    source_schedule.items = _routine()
+    export_file = tmp_path / "presets.ssp.json"
+    export_presets(source, export_file, source_schedule)
+    data = json.loads(export_file.read_text())
+    data["schedule"][1]["start"] = "half past two"
+    export_file.write_text(json.dumps(data))
+    target, target_schedule = _store(tmp_path / "b"), _schedule(tmp_path / "b")
+    target.assign("radio", 1, "Mine", "https://example.com/mine")
+
+    with pytest.raises(PresetImportError):
+        import_presets(target, export_file, target_schedule)
+
+    assert target.slot("radio", 1).label == "Mine"
+    assert target_schedule.items == []

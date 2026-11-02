@@ -1,5 +1,5 @@
-"""Persisted user preferences — currently just whether the audio-reactive
-window glow is turned on.
+"""Persisted user preferences: whether the audio-reactive window glow is
+turned on, and the playback volume.
 """
 from __future__ import annotations
 
@@ -14,6 +14,9 @@ from platformdirs import user_config_dir
 @dataclass
 class Settings:
     glow_enabled: bool = True
+    # 0-100, as shown on the player bar's slider. 100 = full output, which
+    # is how loud playback always was before there was a volume control.
+    volume: int = 100
 
 
 class SettingsStore:
@@ -34,6 +37,14 @@ class SettingsStore:
         self._settings.glow_enabled = enabled
         self.save()
 
+    @property
+    def volume(self) -> int:
+        return self._settings.volume
+
+    def set_volume(self, volume: int) -> None:
+        self._settings.volume = max(0, min(100, int(volume)))
+        self.save()
+
     def load(self) -> None:
         if not self._config_path.exists():
             return
@@ -43,6 +54,9 @@ class SettingsStore:
             return
         if isinstance(data.get("glow_enabled"), bool):
             self._settings.glow_enabled = data["glow_enabled"]
+        volume = data.get("volume")
+        if isinstance(volume, int) and not isinstance(volume, bool):
+            self._settings.volume = max(0, min(100, volume))
 
     def save(self) -> None:
         self._config_path.parent.mkdir(parents=True, exist_ok=True)

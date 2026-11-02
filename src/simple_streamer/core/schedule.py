@@ -162,6 +162,30 @@ def sorted_items(items: list[ScheduleItem]) -> list[ScheduleItem]:
     return sorted(items, key=lambda i: (min(i.days, default=7), i.start_minutes, i.label))
 
 
+def item_to_dict(item: ScheduleItem) -> dict:
+    return asdict(item)
+
+
+def item_from_dict(raw) -> ScheduleItem:
+    """Build and validate an item from saved/exported data; ValueError if unusable."""
+    try:
+        item = ScheduleItem(
+            days=[int(d) for d in raw["days"]],
+            start=str(raw["start"]),
+            category=str(raw["category"]),
+            label=str(raw.get("label", "")),
+            url=str(raw["url"]),
+            end=str(raw.get("end", "")),
+            note=str(raw.get("note", "")),
+            enabled=bool(raw.get("enabled", True)),
+            id=str(raw.get("id") or uuid.uuid4().hex),
+        )
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ValueError("not a schedule item") from exc
+    item.validate()
+    return item
+
+
 class ScheduleStore:
     def __init__(self, config_path: Optional[Path] = None):
         self._config_path = config_path or Path(user_config_dir("Simple-Streamer")) / "schedule.json"
@@ -182,24 +206,12 @@ class ScheduleStore:
         items = []
         for raw in data.get("items", []) if isinstance(data, dict) else []:
             try:
-                item = ScheduleItem(
-                    days=[int(d) for d in raw["days"]],
-                    start=str(raw["start"]),
-                    category=str(raw["category"]),
-                    label=str(raw.get("label", "")),
-                    url=str(raw["url"]),
-                    end=str(raw.get("end", "")),
-                    note=str(raw.get("note", "")),
-                    enabled=bool(raw.get("enabled", True)),
-                    id=str(raw.get("id") or uuid.uuid4().hex),
-                )
-                item.validate()
-            except (KeyError, TypeError, ValueError):
+                items.append(item_from_dict(raw))
+            except ValueError:
                 continue  # skip one bad item rather than lose the schedule
-            items.append(item)
         self.items = items
 
     def save(self) -> None:
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {"items": [asdict(item) for item in self.items]}
+        data = {"items": [item_to_dict(item) for item in self.items]}
         self._config_path.write_text(json.dumps(data, indent=2))

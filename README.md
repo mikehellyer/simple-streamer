@@ -29,12 +29,13 @@ Where items overlap, the one that started most recently wins. The schedule
 only runs while **Schedule → Schedule On** is ticked, and it's off every
 time the app starts.
 
-### Moving presets to another computer
+### Moving presets and the schedule to another computer
 
-Presets are stored separately on each computer. **File → Export Presets…**
-saves both decks, logos included, to a single `.ssp.json` file; on the other
-computer, **File → Import Presets…** replaces its presets with that file's.
-It works between Linux, macOS, and Windows.
+Presets are stored separately on each computer. **File → Export Presets &
+Schedule…** saves both decks (logos included) and the schedule to a single
+`.ssp.json` file; on the other computer, **File → Import Presets & Schedule…**
+replaces its presets and schedule with that file's. It works between Linux,
+macOS, and Windows.
 
 ## Development setup
 

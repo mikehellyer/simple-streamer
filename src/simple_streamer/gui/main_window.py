@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 from PySide6.QtCore import QUrl, Qt, QObject, Signal, QTimer
 from PySide6.QtGui import QKeyEvent, QIcon, QPixmap
-from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QAudioBufferOutput
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QAudioBufferOutput, QtAudio
 from PySide6.QtWidgets import (
     QMainWindow,
     QTabWidget,
@@ -126,6 +126,17 @@ class MainWindow(QMainWindow):
         self._player_bar.seek_requested.connect(self._seek)
         self._player_bar.episodes_requested.connect(self._browse_episodes)
         self._player_bar.position_seek_requested.connect(self._seek_to)
+        self._player_bar.set_volume(self._settings.volume)
+        self._apply_volume(self._settings.volume)
+        self._player_bar.volume_changed.connect(self._on_volume_changed)
+        # Saved a moment after the slider stops moving, not on every step.
+        self._volume_save_timer = QTimer(self)
+        self._volume_save_timer.setSingleShot(True)
+        self._volume_save_timer.setInterval(500)
+        self._volume_save_timer.timeout.connect(
+            lambda: self._settings.set_volume(self._player_bar_volume)
+        )
+        self._player_bar_volume = self._settings.volume
 
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -142,8 +153,8 @@ class MainWindow(QMainWindow):
         self._visualizer.levels_updated.connect(self._audio_glow.update_levels)
 
         file_menu = self.menuBar().addMenu("File")
-        file_menu.addAction("Export Presets…").triggered.connect(self._export_presets)
-        file_menu.addAction("Import Presets…").triggered.connect(self._import_presets)
+        file_menu.addAction("Export Presets && Schedule…").triggered.connect(self._export_presets)
+        file_menu.addAction("Import Presets && Schedule…").triggered.connect(self._import_presets)
 
         schedule_menu = self.menuBar().addMenu("Schedule")
         # Deliberately not remembered between launches: the schedule is
@@ -575,6 +586,23 @@ class MainWindow(QMainWindow):
     def _update_clock(self) -> None:
         self._clock_label.setText(datetime.now().strftime("%d %b %Y  %H:%M:%S"))
 
+    def _apply_volume(self, volume: int) -> None:
+        # The slider is perceptual: QAudioOutput's volume is linear
+        # amplitude, which crams nearly all the audible change into the
+        # bottom of the slider. Logarithmic -> linear makes each step of
+        # the slider sound like a similar change in loudness.
+        linear = QtAudio.convertVolume(
+            volume / 100,
+            QtAudio.VolumeScale.LogarithmicVolumeScale,
+            QtAudio.VolumeScale.LinearVolumeScale,
+        )
+        self._audio_output.setVolume(max(0.0, min(1.0, linear)))
+
+    def _on_volume_changed(self, volume: int) -> None:
+        self._apply_volume(volume)
+        self._player_bar_volume = volume
+        self._volume_save_timer.start()
+
     def _on_slots_renumbered(self, category: str, renumbered: dict) -> None:
         # The playing preset was dragged elsewhere (or its page moved up):
         # follow it, so stop/now-playing/episodes still point at it.
@@ -694,7 +722,7 @@ class MainWindow(QMainWindow):
     def _export_presets(self) -> None:
         filename, _ = QFileDialog.getSaveFileName(
             self,
-            "Export Presets",
+            "Export Presets & Schedule",
             str(Path.home() / f"Simple-Streamer-presets{PRESET_FILE_EXTENSION}"),
             f"Simple-Streamer presets (*{PRESET_FILE_EXTENSION})",
         )
@@ -704,16 +732,16 @@ class MainWindow(QMainWindow):
         if not path.name.endswith(PRESET_FILE_EXTENSION):
             path = path.with_name(path.name + PRESET_FILE_EXTENSION)
         try:
-            export_presets(self._store, path)
+            export_presets(self._store, path, self._schedule)
         except OSError as exc:
-            QMessageBox.warning(self, "Export Presets", f"Couldn't save the presets:\n{exc}")
+            QMessageBox.warning(self, "Export Presets & Schedule", f"Couldn't save the file:\n{exc}")
             return
-        self.statusBar().showMessage(f"Presets exported to {path}", 8000)
+        self.statusBar().showMessage(f"Presets and schedule exported to {path}", 8000)
 
     def _import_presets(self) -> None:
         filename, _ = QFileDialog.getOpenFileName(
             self,
-            "Import Presets",
+            "Import Presets & Schedule",
             str(Path.home()),
             f"Simple-Streamer presets (*{PRESET_FILE_EXTENSION});;All files (*)",
         )
@@ -721,27 +749,41 @@ class MainWindow(QMainWindow):
             return
         answer = QMessageBox.question(
             self,
-            "Import Presets",
-            "Replace all your current Radio and Podcast presets with the ones in this file?",
+            "Import Presets & Schedule",
+            "Replace all your current Radio and Podcast presets — and your schedule, if the"
+            " file has one — with the ones in this file?",
         )
         if answer != QMessageBox.Yes:
             return
         # The playing slot may be about to become a different station.
         self._stop_playback()
         try:
-            import_presets(self._store, Path(filename))
+            schedule_imported = import_presets(self._store, Path(filename), self._schedule)
         except PresetImportError as exc:
-            QMessageBox.warning(self, "Import Presets", f"{exc}\n\nYour presets haven't been changed.")
+            QMessageBox.warning(
+                self, "Import Presets & Schedule", f"{exc}\n\nNothing has been changed."
+            )
             return
         for deck in self._decks.values():
             deck.refresh_labels()
-        self.statusBar().showMessage("Presets imported", 8000)
+        if schedule_imported:
+            # A different schedule: start afresh from what it says is on now.
+            self._schedule_key = None
+            self._schedule_finished.clear()
+            self._schedule_episode = None
+            self._schedule_tick()
+            self.statusBar().showMessage("Presets and schedule imported", 8000)
+        else:
+            self.statusBar().showMessage("Presets imported (that file has no schedule)", 8000)
 
     def _on_glow_toggled(self, enabled: bool) -> None:
         self._settings.set_glow_enabled(enabled)
         self._audio_glow.set_glow_enabled(enabled)
 
     def closeEvent(self, event) -> None:
+        if self._volume_save_timer.isActive():
+            self._volume_save_timer.stop()
+            self._settings.set_volume(self._player_bar_volume)
         self._save_current_progress()
         self._stop_metadata_watchers()
         self._background.shutdown(BACKGROUND_JOIN_TIMEOUT_MS)

@@ -1,10 +1,14 @@
-"""Export both preset decks to a single file, and import one back.
+"""Export both preset decks (and the schedule) to a single file, and
+import one back.
 
 Moves a preset layout between computers. Each machine keeps its own
 presets.json, and the image_path values inside it are absolute paths into
 that machine's cache folder, so copying the config folder across only
 works between identical setups. An export file instead embeds each slot's
-logo bytes, so it imports on any OS, under any username.
+logo bytes, so it imports on any OS, under any username. The schedule
+travels in the same file because its items play presets — moving one
+without the other would leave items pointing at stations that aren't
+there.
 """
 from __future__ import annotations
 
@@ -16,6 +20,7 @@ from pathlib import Path
 
 from simple_streamer import __version__
 from simple_streamer.core.presets import CATEGORIES, MAX_PAGES, SLOTS_PER_PAGE, PresetStore
+from simple_streamer.core.schedule import ScheduleStore, item_from_dict, item_to_dict
 
 FILE_FORMAT = "simple-streamer-presets"
 # Version 2 adds extra pages (slot numbers past 20). An export with only
@@ -34,7 +39,7 @@ class PresetImportError(Exception):
     """The chosen file isn't a usable preset export; nothing was changed."""
 
 
-def export_presets(store: PresetStore, path: Path) -> None:
+def export_presets(store: PresetStore, path: Path, schedule: ScheduleStore | None = None) -> None:
     multi_page = any(store.page_count(category) > 1 for category in CATEGORIES)
     data = {
         "format": FILE_FORMAT,
@@ -64,17 +69,24 @@ def export_presets(store: PresetStore, path: Path) -> None:
                 }
             )
         data[category] = slots
+    if schedule is not None:
+        # An unknown key to older versions, which just ignore it.
+        data["schedule"] = [item_to_dict(item) for item in schedule.items]
     path.write_text(json.dumps(data, indent=2))
 
 
-def import_presets(store: PresetStore, path: Path) -> None:
+def import_presets(
+    store: PresetStore, path: Path, schedule: ScheduleStore | None = None
+) -> bool:
     """Replace every slot in both decks with the file's contents, and save.
+    If the file has a schedule (and `schedule` is given), that replaces the
+    current schedule too. Returns whether a schedule was imported.
 
     The whole file is validated before anything is touched, so a bad file
-    raises PresetImportError and leaves the current presets exactly as
-    they were.
+    raises PresetImportError and leaves the current presets and schedule
+    exactly as they were.
     """
-    decks, pages = _read_export(path)
+    decks, pages, schedule_items = _read_export(path)
     for category in CATEGORIES:
         for slot in store.deck(category):
             store.clear(category, slot.number)
@@ -92,9 +104,14 @@ def import_presets(store: PresetStore, path: Path) -> None:
                 image_bytes, extension = slot["image"]
                 store.set_image(category, number, image_bytes, extension)
     store.save()
+    if schedule is None or schedule_items is None:
+        return False
+    schedule.items = schedule_items
+    schedule.save()
+    return True
 
 
-def _read_export(path: Path) -> tuple[dict[str, dict[int, dict]], dict[str, int]]:
+def _read_export(path: Path) -> tuple[dict[str, dict[int, dict]], dict[str, int], list | None]:
     try:
         if path.stat().st_size > MAX_IMPORT_BYTES:
             raise PresetImportError("That file is too large to be a preset export.")
@@ -129,7 +146,17 @@ def _read_export(path: Path) -> tuple[dict[str, dict[int, dict]], dict[str, int]
             raise PresetImportError("That preset export is damaged.")
         needed_pages = -(-max(decks[category], default=1) // SLOTS_PER_PAGE)
         pages[category] = max(saved_pages, needed_pages)
-    return decks, pages
+
+    schedule_items = None  # an export from before schedules has none
+    if "schedule" in data:
+        raw_schedule = data["schedule"]
+        if not isinstance(raw_schedule, list):
+            raise PresetImportError("That preset export is damaged.")
+        try:
+            schedule_items = [item_from_dict(raw) for raw in raw_schedule]
+        except ValueError as exc:
+            raise PresetImportError("The schedule in that export is damaged.") from exc
+    return decks, pages, schedule_items
 
 
 def _parse_slot(raw) -> dict | None:

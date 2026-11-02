@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSlider,
+    QWidget,
 )
 
 from simple_streamer.core.browser_raise import try_raise_browser_window
@@ -30,8 +31,10 @@ class PlayerBar(QFrame):
     seek_requested = Signal(int)  # milliseconds to jump, negative for back
     position_seek_requested = Signal(int)  # absolute milliseconds, from dragging the progress bar
     episodes_requested = Signal()
+    volume_changed = Signal(int)  # 0-100
 
     SEEK_STEP_MS = 15_000
+    VOLUME_BOX_WIDTH = 190
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -73,6 +76,27 @@ class PlayerBar(QFrame):
         # Buttons centered on their own row below the progress bar,
         # rather than sharing space with the title.
         controls_row = QHBoxLayout()
+        # Volume sits at the right-hand end; a same-width spacer on the
+        # left keeps the transport buttons centred.
+        volume_box = QWidget()
+        volume_box.setFixedWidth(self.VOLUME_BOX_WIDTH)
+        volume_layout = QHBoxLayout(volume_box)
+        volume_layout.setContentsMargins(0, 0, 0, 0)
+        volume_icon = QLabel("🔊")
+        volume_icon.setToolTip("Volume")
+        self._volume_slider = QSlider(Qt.Horizontal)
+        self._volume_slider.setRange(0, 100)
+        self._volume_slider.setToolTip("Volume")
+        self._volume_label = QLabel()
+        self._volume_label.setStyleSheet("color: gray; font-size: 11px;")
+        self._volume_label.setMinimumWidth(32)
+        self._volume_slider.valueChanged.connect(self._on_volume_slider_changed)
+        volume_layout.addWidget(volume_icon)
+        volume_layout.addWidget(self._volume_slider, stretch=1)
+        volume_layout.addWidget(self._volume_label)
+        left_spacer = QWidget()
+        left_spacer.setFixedWidth(self.VOLUME_BOX_WIDTH)
+        controls_row.addWidget(left_spacer)
         controls_row.addStretch(1)
 
         self._website_url = ""
@@ -103,12 +127,24 @@ class PlayerBar(QFrame):
         controls_row.addWidget(self._stop_button)
 
         controls_row.addStretch(1)
+        controls_row.addWidget(volume_box)
         outer.addLayout(controls_row)
 
         self.set_active(False)
 
         self._progress = LoadingIndicator()
         outer.addWidget(self._progress)
+
+    def set_volume(self, volume: int) -> None:
+        """Show `volume` on the slider without emitting volume_changed."""
+        self._volume_slider.blockSignals(True)
+        self._volume_slider.setValue(volume)
+        self._volume_slider.blockSignals(False)
+        self._volume_label.setText(f"{volume}%")
+
+    def _on_volume_slider_changed(self, volume: int) -> None:
+        self._volume_label.setText(f"{volume}%")
+        self.volume_changed.emit(volume)
 
     def set_now_playing(self, text: str) -> None:
         self._now_playing.setText(text)

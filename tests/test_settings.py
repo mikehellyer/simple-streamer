@@ -1,3 +1,5 @@
+import json
+
 from simple_streamer.core.settings import SettingsStore
 
 
@@ -38,3 +40,23 @@ def test_malformed_value_is_ignored(tmp_path):
     config_path.write_text('{"glow_enabled": "not a bool"}')
     store = SettingsStore(config_path=config_path)
     assert store.glow_enabled is True
+
+
+def test_volume_defaults_to_full_and_persists(tmp_path):
+    path = tmp_path / "settings.json"
+    store = SettingsStore(config_path=path)
+    assert store.volume == 100
+
+    store.set_volume(35)
+
+    assert SettingsStore(config_path=path).volume == 35
+
+
+def test_volume_is_clamped_and_bad_values_are_ignored(tmp_path):
+    path = tmp_path / "settings.json"
+    store = SettingsStore(config_path=path)
+    store.set_volume(150)
+    assert store.volume == 100
+
+    path.write_text(json.dumps({"glow_enabled": True, "volume": "loud"}))
+    assert SettingsStore(config_path=path).volume == 100
