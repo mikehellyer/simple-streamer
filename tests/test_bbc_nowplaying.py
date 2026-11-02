@@ -17,6 +17,14 @@ def test_extracts_service_id_from_a_direct_cdn_url():
     assert bbc_service_id_from_url(url) == "bbc_radio_five_live_sports_extra"
 
 
+def test_extracts_a_service_id_that_isnt_bbc_radio_something():
+    url = (
+        "http://as-hls-uk-live.akamaized.net/pool_81827798/live/uk/bbc_6music/"
+        "bbc_6music.isml/bbc_6music-audio%3d320000.norewind.m3u8"
+    )
+    assert bbc_service_id_from_url(url) == "bbc_6music"
+
+
 def test_returns_none_for_a_non_bbc_url():
     assert bbc_service_id_from_url("http://icecast.thisisdax.com/LBCUKMP3") is None
 

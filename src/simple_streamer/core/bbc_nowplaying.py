@@ -18,7 +18,11 @@ from typing import Optional
 from simple_streamer.core.http import SSL_CONTEXT
 
 API_TIMEOUT_SECONDS = 5
-_SERVICE_ID_RE = re.compile(r"bbc_radio_[a-z0-9_]+")
+# Most BBC service ids are bbc_radio_*, but a few national stations
+# aren't (bbc_6music, bbc_1xtra, bbc_asian_network, bbc_world_service).
+_SERVICE_ID_RE = re.compile(
+    r"bbc_(?:radio_[a-z0-9_]+|6music|1xtra|asian_network|world_service)"
+)
 
 
 @dataclass
