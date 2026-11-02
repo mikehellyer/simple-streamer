@@ -117,7 +117,7 @@ def test_a_bad_file_is_rejected_and_nothing_changes(tmp_path, contents):
 
 def test_a_damaged_slot_late_in_the_file_changes_nothing(tmp_path):
     data = _valid_export(tmp_path)
-    data["podcasts"][19]["number"] = 99  # radio deck is fine; podcasts isn't
+    data["podcasts"][19]["number"] = 9999  # radio deck is fine; podcasts isn't
     bad_file = _write(tmp_path / "bad.json", data)
     target = _store(tmp_path / "b")
     target.assign("radio", 1, "Mine", "https://example.com/mine")
@@ -138,3 +138,46 @@ def test_an_image_extension_that_isnt_an_extension_is_rejected(tmp_path):
         import_presets(target, bad_file)
 
     assert not (tmp_path / "evil").exists()
+
+
+def test_extra_pages_survive_export_and_import(tmp_path):
+    source = _store(tmp_path / "a")
+    source.add_page("radio")
+    source.add_page("radio")
+    source.assign("radio", 33, "Page Two Station", "https://example.com/p2")
+    source.set_image("radio", 33, b"p2-logo", ".png")
+    export_file = tmp_path / "presets.ssp.json"
+    export_presets(source, export_file)
+
+    target = _store(tmp_path / "b")
+    import_presets(target, export_file)
+
+    assert target.page_count("radio") == 3
+    assert target.page_count("podcasts") == 1
+    assert target.slot("radio", 33).label == "Page Two Station"
+    assert Path(target.slot("radio", 33).image_path).read_bytes() == b"p2-logo"
+
+
+def test_importing_fewer_pages_drops_the_extra_ones(tmp_path):
+    source = _store(tmp_path / "a")
+    source.assign("radio", 1, "One", "https://example.com/1")
+    export_file = tmp_path / "presets.ssp.json"
+    export_presets(source, export_file)
+    target = _store(tmp_path / "b")
+    target.add_page("radio")
+    target.assign("radio", 30, "Old page two", "https://example.com/old")
+
+    import_presets(target, export_file)
+
+    assert target.page_count("radio") == 1
+
+
+def test_a_single_page_export_stays_readable_by_older_versions(tmp_path):
+    source = _store(tmp_path / "a")
+    export_file = tmp_path / "one-page.ssp.json"
+    export_presets(source, export_file)
+    assert json.loads(export_file.read_text())["version"] == 1
+
+    source.add_page("podcasts")
+    export_presets(source, export_file)
+    assert json.loads(export_file.read_text())["version"] == 2

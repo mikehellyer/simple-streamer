@@ -96,6 +96,7 @@ class MainWindow(QMainWindow):
             deck = PresetDeckWidget(category, self._store, self._run_in_background, self._episode_progress)
             deck.slot_activated.connect(self._play_slot)
             deck.episode_chosen.connect(self._play_chosen_episode)
+            deck.slots_renumbered.connect(self._on_slots_renumbered)
             self._tabs.addTab(deck, title)
             self._decks[category] = deck
 
@@ -537,6 +538,12 @@ class MainWindow(QMainWindow):
 
     def _update_clock(self) -> None:
         self._clock_label.setText(datetime.now().strftime("%d %b %Y  %H:%M:%S"))
+
+    def _on_slots_renumbered(self, category: str, renumbered: dict) -> None:
+        # The playing preset was dragged elsewhere (or its page moved up):
+        # follow it, so stop/now-playing/episodes still point at it.
+        if category == self._active_category and self._active_number in renumbered:
+            self._active_number = renumbered[self._active_number]
 
     def _export_presets(self) -> None:
         filename, _ = QFileDialog.getSaveFileName(

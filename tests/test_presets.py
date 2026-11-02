@@ -1,15 +1,17 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from simple_streamer.core import presets as presets_module
-from simple_streamer.core.presets import PresetStore, SLOTS_PER_DECK, CATEGORIES, DEFAULT_PRESETS
+from simple_streamer.core.presets import PresetStore, SLOTS_PER_PAGE, MAX_PAGES, CATEGORIES, DEFAULT_PRESETS
 
 
 def test_new_store_has_ten_empty_slots_per_category(tmp_path):
     store = PresetStore(config_path=tmp_path / "presets.json")
     for category in CATEGORIES:
         deck = store.deck(category)
-        assert len(deck) == SLOTS_PER_DECK
+        assert len(deck) == SLOTS_PER_PAGE
         assert all(slot.is_empty for slot in deck)
 
 
@@ -154,7 +156,7 @@ def test_a_file_from_before_offered_defaults_gets_one_last_fill(tmp_path, monkey
     # time, then deleting one sticks like on any other install.
     target = tmp_path / "presets.json"
     monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
-    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_PAGE + 1)]
     target.write_text(json.dumps({"radio": old_deck, "podcasts": []}))
 
     upgraded = PresetStore()
@@ -184,7 +186,7 @@ def test_a_new_default_reaches_a_machine_with_an_older_saved_file(tmp_path, monk
     # it exists in the file (every slot is always serialized) but empty.
     target = tmp_path / "presets.json"
     monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
-    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_PAGE + 1)]
     old_deck[0] = {"number": 1, "label": "The Diary Of A CEO", "url": "https://old.example/feed.xml"}
     target.write_text(json.dumps({"radio": [], "podcasts": old_deck}))
 
@@ -205,7 +207,7 @@ def test_a_website_added_later_backfills_onto_an_already_assigned_slot(tmp_path,
     target = tmp_path / "presets.json"
     monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
     entry = DEFAULT_PRESETS["radio"][0]
-    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_PAGE + 1)]
     old_deck[0] = {"number": 1, "label": entry.label, "url": entry.url}
     target.write_text(json.dumps({"radio": old_deck, "podcasts": []}))
 
@@ -227,7 +229,7 @@ def test_a_slot_on_a_retired_default_url_is_upgraded(tmp_path, monkeypatch):
     target = tmp_path / "presets.json"
     monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
     number, entry = _radio_default_with_replaced_url()
-    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_PAGE + 1)]
     old_deck[number - 1] = {"number": number, "label": entry.label, "url": entry.replaces_urls[0]}
     target.write_text(json.dumps({"radio": old_deck, "podcasts": []}))
 
@@ -241,7 +243,7 @@ def test_url_upgrade_leaves_a_slot_the_user_pointed_elsewhere(tmp_path, monkeypa
     target = tmp_path / "presets.json"
     monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
     number, entry = _radio_default_with_replaced_url()
-    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_PAGE + 1)]
     old_deck[number - 1] = {"number": number, "label": entry.label, "url": "https://my.own/stream"}
     target.write_text(json.dumps({"radio": old_deck, "podcasts": []}))
 
@@ -256,7 +258,7 @@ def test_website_backfill_skips_a_slot_the_user_repurposed(tmp_path, monkeypatch
     # get the default's website attached to it.
     target = tmp_path / "presets.json"
     monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
-    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_PAGE + 1)]
     old_deck[0] = {"number": 1, "label": "My Own Station", "url": "https://mine.example/stream"}
     target.write_text(json.dumps({"radio": old_deck, "podcasts": []}))
 
@@ -381,7 +383,7 @@ def test_default_image_backfills_onto_an_already_assigned_slot(tmp_path, monkeyp
     target = tmp_path / "presets.json"
     monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
     entry = DEFAULT_PRESETS["radio"][0]
-    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_PAGE + 1)]
     old_deck[0] = {"number": 1, "label": entry.label, "url": entry.url}
     target.write_text(json.dumps({"radio": old_deck, "podcasts": []}))
 
@@ -399,7 +401,7 @@ def test_default_image_backfill_skips_a_slot_the_user_repurposed(tmp_path, monke
 
     target = tmp_path / "presets.json"
     monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
-    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_PAGE + 1)]
     old_deck[0] = {"number": 1, "label": "My Own Station", "url": "https://mine.example/stream"}
     target.write_text(json.dumps({"radio": old_deck, "podcasts": []}))
 
@@ -419,7 +421,7 @@ def test_default_image_backfill_skips_a_slot_the_user_already_gave_an_image(
     target = tmp_path / "presets.json"
     monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
     entry = DEFAULT_PRESETS["radio"][0]
-    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_PAGE + 1)]
     old_deck[0] = {
         "number": 1,
         "label": entry.label,
@@ -431,3 +433,103 @@ def test_default_image_backfill_skips_a_slot_the_user_already_gave_an_image(
     store = PresetStore()
 
     assert store.slot("radio", 1).image_path == "/somewhere/my-own-image.png"
+
+
+def test_moving_a_preset_onto_an_occupied_slot_swaps_them_with_their_images(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+    store.assign("radio", 2, "Two", "https://example.com/2", website="https://two")
+    store.set_image("radio", 2, b"logo-two", ".png")
+    store.assign("radio", 9, "Nine", "https://example.com/9")
+    store.set_image("radio", 9, b"logo-nine", ".jpg")
+
+    store.move("radio", 2, 9)
+
+    assert store.slot("radio", 9).label == "Two"
+    assert store.slot("radio", 9).website == "https://two"
+    assert store.slot("radio", 9).number == 9
+    assert Path(store.slot("radio", 9).image_path).read_bytes() == b"logo-two"
+    assert store.slot("radio", 2).label == "Nine"
+    assert Path(store.slot("radio", 2).image_path).read_bytes() == b"logo-nine"
+    assert sorted(p.name for p in store.image_cache_dir().iterdir()) == ["radio_2.jpg", "radio_9.png"]
+
+
+def test_moving_a_preset_into_an_empty_slot_leaves_the_old_one_empty(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+    store.assign("radio", 1, "One", "https://example.com/1")
+    store.set_image("radio", 1, b"logo", ".png")
+
+    store.move("radio", 1, 5)
+
+    assert store.slot("radio", 5).label == "One"
+    assert store.slot("radio", 1).is_empty
+    assert store.slot("radio", 1).image_path == ""
+    assert not list(store.image_cache_dir().glob("radio_1.*"))
+
+
+def test_add_page_appends_twenty_empty_slots(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+
+    assert store.add_page("radio") == 2
+
+    assert store.page_count("radio") == 2
+    assert len(store.deck("radio")) == 2 * SLOTS_PER_PAGE
+    assert [s.number for s in store.page_slots("radio", 2)] == list(range(21, 41))
+    assert store.page_count("podcasts") == 1  # decks page independently
+
+
+def test_extra_pages_round_trip_through_save_and_reload(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+    store.add_page("radio")
+    store.add_page("radio")  # page 3 stays empty but is kept
+    store.assign("radio", 25, "Page Two", "https://example.com/p2")
+    store.save()
+
+    reloaded = PresetStore(config_path=tmp_path / "presets.json")
+
+    assert reloaded.page_count("radio") == 3
+    assert reloaded.slot("radio", 25).label == "Page Two"
+
+
+def test_a_preset_can_move_to_another_page(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+    store.assign("radio", 3, "Mover", "https://example.com/m")
+    store.add_page("radio")
+
+    store.move("radio", 3, store.first_empty_slot("radio", 2))
+
+    assert store.slot("radio", 21).label == "Mover"
+    assert store.slot("radio", 3).is_empty
+
+
+def test_removing_an_empty_middle_page_shifts_later_pages_up(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+    store.add_page("radio")
+    store.add_page("radio")
+    store.assign("radio", 45, "Page Three", "https://example.com/p3")
+    store.set_image("radio", 45, b"logo", ".png")
+
+    renumbered = store.remove_page("radio", 2)
+
+    assert renumbered == {45: 25}
+    assert store.page_count("radio") == 2
+    assert store.slot("radio", 25).label == "Page Three"
+    assert Path(store.slot("radio", 25).image_path).read_bytes() == b"logo"
+
+
+def test_a_page_with_presets_or_the_last_page_cant_be_removed(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+    with pytest.raises(ValueError):
+        store.remove_page("radio", 1)  # the only page
+    store.add_page("radio")
+    store.assign("radio", 22, "Busy", "https://example.com/b")
+    with pytest.raises(ValueError):
+        store.remove_page("radio", 2)
+    assert store.slot("radio", 22).label == "Busy"
+
+
+def test_pages_stop_at_the_maximum(tmp_path):
+    store = PresetStore(config_path=tmp_path / "presets.json")
+    for _ in range(MAX_PAGES - 1):
+        store.add_page("radio")
+    with pytest.raises(ValueError):
+        store.add_page("radio")

@@ -1,14 +1,16 @@
-"""Preset slots for Simple-Streamer: two independent 20-slot decks (radio, podcasts)."""
+"""Preset slots for Simple-Streamer: two independent decks (radio, podcasts),
+each made of one or more 20-slot pages."""
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict, field, replace
 from pathlib import Path
 from typing import Optional
 
 from platformdirs import user_config_dir
 
-SLOTS_PER_DECK = 20
+SLOTS_PER_PAGE = 20
+MAX_PAGES = 10
 CATEGORIES = ("radio", "podcasts")
 
 # Curated logos/artwork for the starter presets below (see the
@@ -206,9 +208,9 @@ class PresetStore:
         explicit_path = config_path is not None
         self._config_path = config_path or self._default_config_path()
         self._decks: dict[str, list[PresetSlot]] = {
-            category: [PresetSlot(number=n) for n in range(1, SLOTS_PER_DECK + 1)]
+            category: [PresetSlot(number=n) for n in range(1, SLOTS_PER_PAGE + 1)]
             for category in CATEGORIES
-        }
+        }  # one page each to start; load() grows them to the saved page count
         # Labels of the DEFAULT_PRESETS already offered to this install, so
         # each default is placed at most once — a starter preset the user
         # deletes stays deleted instead of coming back on the next launch.
@@ -345,6 +347,92 @@ class PresetStore:
         for stale in self.image_cache_dir().glob(f"{category}_{number}.*"):
             stale.unlink(missing_ok=True)
 
+    def page_count(self, category: str) -> int:
+        return len(self._decks[category]) // SLOTS_PER_PAGE
+
+    def page_slots(self, category: str, page: int) -> list[PresetSlot]:
+        start = (page - 1) * SLOTS_PER_PAGE
+        return self._decks[category][start : start + SLOTS_PER_PAGE]
+
+    def page_is_empty(self, category: str, page: int) -> bool:
+        return all(slot.is_empty for slot in self.page_slots(category, page))
+
+    def set_page_count(self, category: str, pages: int) -> None:
+        """Grow or shrink a deck to `pages` pages. Only ever drops empty
+        slots — shrinking past a page with presets on it raises instead.
+        """
+        if not 1 <= pages <= MAX_PAGES:
+            raise ValueError(f"a deck has between 1 and {MAX_PAGES} pages")
+        deck = self._decks[category]
+        new_size = pages * SLOTS_PER_PAGE
+        if any(not slot.is_empty for slot in deck[new_size:]):
+            raise ValueError("can't drop a page that still has presets on it")
+        del deck[new_size:]
+        deck.extend(PresetSlot(number=n) for n in range(len(deck) + 1, new_size + 1))
+
+    def add_page(self, category: str) -> int:
+        """Append an empty page and return its page number."""
+        self.set_page_count(category, self.page_count(category) + 1)
+        return self.page_count(category)
+
+    def remove_page(self, category: str, page: int) -> dict[int, int]:
+        """Remove an empty page; later pages move up one to close the gap.
+
+        Returns {old slot number: new slot number} for every preset that
+        moved, so anything holding a slot number (the player) can follow.
+        """
+        if self.page_count(category) <= 1:
+            raise ValueError("a deck always keeps at least one page")
+        if not self.page_is_empty(category, page):
+            raise ValueError("only an empty page can be removed")
+        renumbered = {}
+        first_after = page * SLOTS_PER_PAGE + 1
+        for number in range(first_after, len(self._decks[category]) + 1):
+            if not self.slot(category, number).is_empty:
+                self._relocate(category, number, number - SLOTS_PER_PAGE)
+                renumbered[number] = number - SLOTS_PER_PAGE
+        self.set_page_count(category, self.page_count(category) - 1)
+        return renumbered
+
+    def move(self, category: str, from_number: int, to_number: int) -> None:
+        """Move a preset to another slot, swapping with whatever's there.
+        Each preset's cached logo goes with it.
+        """
+        if from_number == to_number:
+            return
+        moving = self.slot(category, from_number)
+        displaced = self.slot(category, to_number)
+        moving_image = self._take_image(category, from_number)
+        displaced_image = self._take_image(category, to_number)
+        self._decks[category][to_number - 1] = replace(moving, number=to_number, image_path="")
+        self._decks[category][from_number - 1] = replace(displaced, number=from_number, image_path="")
+        if moving_image:
+            self.set_image(category, to_number, *moving_image)
+        if displaced_image:
+            self.set_image(category, from_number, *displaced_image)
+
+    def first_empty_slot(self, category: str, page: int) -> Optional[int]:
+        for slot in self.page_slots(category, page):
+            if slot.is_empty:
+                return slot.number
+        return None
+
+    def _relocate(self, category: str, from_number: int, to_number: int) -> None:
+        """Move a preset into an empty slot (see move() for the general case)."""
+        assert self.slot(category, to_number).is_empty
+        self.move(category, from_number, to_number)
+
+    def _take_image(self, category: str, number: int) -> Optional[tuple[bytes, str]]:
+        """Read a slot's cached logo and delete it from the cache, so it
+        can be re-written under a different slot number.
+        """
+        image_path = self.slot(category, number).image_path
+        if not image_path or not Path(image_path).is_file():
+            return None
+        image = (Path(image_path).read_bytes(), Path(image_path).suffix)
+        self._clear_cached_image_file(category, number)
+        return image
+
     def load(self) -> None:
         if not self._config_path.exists():
             return
@@ -352,10 +440,17 @@ class PresetStore:
             data = json.loads(self._config_path.read_text())
         except (OSError, json.JSONDecodeError):
             return
+        pages = data.get("pages", {})
         for category in CATEGORIES:
+            saved_pages = pages.get(category) if isinstance(pages, dict) else None
+            if isinstance(saved_pages, int):
+                self.set_page_count(category, max(1, min(saved_pages, MAX_PAGES)))
             for raw in data.get(category, []):
                 number = raw.get("number")
-                if isinstance(number, int) and 1 <= number <= SLOTS_PER_DECK:
+                if isinstance(number, int) and 1 <= number <= MAX_PAGES * SLOTS_PER_PAGE:
+                    needed_pages = -(-number // SLOTS_PER_PAGE)
+                    if needed_pages > self.page_count(category):
+                        self.set_page_count(category, needed_pages)
                     self._decks[category][number - 1] = PresetSlot(
                         number=number,
                         label=raw.get("label", ""),
@@ -378,6 +473,7 @@ class PresetStore:
             category: [asdict(slot) for slot in slots]
             for category, slots in self._decks.items()
         }
+        data["pages"] = {category: self.page_count(category) for category in CATEGORIES}
         data["offered_defaults"] = {
             category: sorted(labels) for category, labels in self._offered_defaults.items()
         }

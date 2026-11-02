@@ -15,10 +15,14 @@ import re
 from pathlib import Path
 
 from simple_streamer import __version__
-from simple_streamer.core.presets import CATEGORIES, SLOTS_PER_DECK, PresetStore
+from simple_streamer.core.presets import CATEGORIES, MAX_PAGES, SLOTS_PER_PAGE, PresetStore
 
 FILE_FORMAT = "simple-streamer-presets"
-FILE_FORMAT_VERSION = 1
+# Version 2 adds extra pages (slot numbers past 20). An export with only
+# one page per deck is still written as version 1, so an older
+# Simple-Streamer can import it; one with more says "made by a newer
+# Simple-Streamer" there instead of "damaged".
+FILE_FORMAT_VERSION = 2
 FILE_EXTENSION = ".ssp.json"
 MAX_IMPORT_BYTES = 50 * 1024 * 1024
 # The extension becomes part of a cache filename on import, so only
@@ -31,10 +35,12 @@ class PresetImportError(Exception):
 
 
 def export_presets(store: PresetStore, path: Path) -> None:
+    multi_page = any(store.page_count(category) > 1 for category in CATEGORIES)
     data = {
         "format": FILE_FORMAT,
-        "version": FILE_FORMAT_VERSION,
+        "version": FILE_FORMAT_VERSION if multi_page else 1,
         "app_version": __version__,
+        "pages": {category: store.page_count(category) for category in CATEGORIES},
     }
     for category in CATEGORIES:
         slots = []
@@ -68,10 +74,11 @@ def import_presets(store: PresetStore, path: Path) -> None:
     raises PresetImportError and leaves the current presets exactly as
     they were.
     """
-    decks = _read_export(path)
+    decks, pages = _read_export(path)
     for category in CATEGORIES:
-        for number in range(1, SLOTS_PER_DECK + 1):
-            store.clear(category, number)
+        for slot in store.deck(category):
+            store.clear(category, slot.number)
+        store.set_page_count(category, pages[category])
         for number, slot in decks[category].items():
             store.assign(
                 category,
@@ -87,7 +94,7 @@ def import_presets(store: PresetStore, path: Path) -> None:
     store.save()
 
 
-def _read_export(path: Path) -> dict[str, dict[int, dict]]:
+def _read_export(path: Path) -> tuple[dict[str, dict[int, dict]], dict[str, int]]:
     try:
         if path.stat().st_size > MAX_IMPORT_BYTES:
             raise PresetImportError("That file is too large to be a preset export.")
@@ -103,7 +110,11 @@ def _read_export(path: Path) -> dict[str, dict[int, dict]]:
             "That preset export was made by a newer Simple-Streamer — update this one first."
         )
 
+    raw_pages = data.get("pages", {})
+    if not isinstance(raw_pages, dict):
+        raise PresetImportError("That preset export is damaged.")
     decks: dict[str, dict[int, dict]] = {}
+    pages: dict[str, int] = {}
     for category in CATEGORIES:
         raw_slots = data.get(category)
         if not isinstance(raw_slots, list):
@@ -113,7 +124,12 @@ def _read_export(path: Path) -> dict[str, dict[int, dict]]:
             slot = _parse_slot(raw)
             if slot is not None:
                 decks[category][slot["number"]] = slot
-    return decks
+        saved_pages = raw_pages.get(category, 1)
+        if not isinstance(saved_pages, int) or not 1 <= saved_pages <= MAX_PAGES:
+            raise PresetImportError("That preset export is damaged.")
+        needed_pages = -(-max(decks[category], default=1) // SLOTS_PER_PAGE)
+        pages[category] = max(saved_pages, needed_pages)
+    return decks, pages
 
 
 def _parse_slot(raw) -> dict | None:
@@ -121,7 +137,7 @@ def _parse_slot(raw) -> dict | None:
     if not isinstance(raw, dict):
         raise PresetImportError("That preset export is damaged.")
     number = raw.get("number")
-    if not isinstance(number, int) or not 1 <= number <= SLOTS_PER_DECK:
+    if not isinstance(number, int) or not 1 <= number <= MAX_PAGES * SLOTS_PER_PAGE:
         raise PresetImportError("That preset export is damaged.")
 
     label, url, website = (raw.get(key, "") for key in ("label", "url", "website"))

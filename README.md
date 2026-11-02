@@ -8,10 +8,13 @@ Created by [Mike Hellyer](https://github.com/mikehellyer), built with
 ## Status
 
 The Radio and Podcasts tabs each have 20 preset slots you can assign a name +
-URL to (right-click a slot, or click an empty one) — Radio ships with BBC,
-talkSPORT, LBC, Planet Rock, Manx Radio, Sportsnet 590, MFR, and MFR 2
-(Greatest Hits Radio) as starter presets,
-and Podcasts ships with a few shows. Holding **F1** shows a legend overlaying
+URL to (right-click a slot, or click an empty one). Drag a preset onto another
+slot to move it (the two swap if that slot is taken), and use the **+** under
+the grid to add another page of 20 when you need more; an empty page can be
+removed again.
+Radio ships with BBC, talkSPORT, LBC, Planet Rock, Manx Radio, Sportsnet 590,
+MFR, and MFR 2 (Greatest Hits Radio) as starter presets, and Podcasts ships
+with a few shows. Holding **F1** shows a legend overlaying
 the grid with what every slot is tuned to. Playback goes through Qt's
 multimedia engine: Radio slots take a direct stream URL, Podcast slots take
 an RSS feed URL and always play whatever that show's latest episode is.
