@@ -16,6 +16,13 @@ the grid with what every slot is tuned to. Playback goes through Qt's
 multimedia engine: Radio slots take a direct stream URL, Podcast slots take
 an RSS feed URL and always play whatever that show's latest episode is.
 
+### Moving presets to another computer
+
+Presets are stored separately on each computer. **File → Export Presets…**
+saves both decks, logos included, to a single `.ssp.json` file; on the other
+computer, **File → Import Presets…** replaces its presets with that file's.
+It works between Linux, macOS, and Windows.
+
 ## Development setup
 
 ```bash

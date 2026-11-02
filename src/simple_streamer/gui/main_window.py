@@ -16,10 +16,18 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
+    QFileDialog,
+    QMessageBox,
 )
 
 from simple_streamer import __version__
 from simple_streamer.core.presets import PresetStore
+from simple_streamer.core.preset_transfer import (
+    FILE_EXTENSION as PRESET_FILE_EXTENSION,
+    PresetImportError,
+    export_presets,
+    import_presets,
+)
 from simple_streamer.core.episode_progress import EpisodeProgressStore
 from simple_streamer.core.settings import SettingsStore
 from simple_streamer.core.pls_resolver import resolve_pls
@@ -126,6 +134,10 @@ class MainWindow(QMainWindow):
         self._audio_glow.set_glow_enabled(self._settings.glow_enabled)
         self.setCentralWidget(self._audio_glow)
         self._visualizer.levels_updated.connect(self._audio_glow.update_levels)
+
+        file_menu = self.menuBar().addMenu("File")
+        file_menu.addAction("Export Presets…").triggered.connect(self._export_presets)
+        file_menu.addAction("Import Presets…").triggered.connect(self._import_presets)
 
         view_menu = self.menuBar().addMenu("View")
         self._glow_action = view_menu.addAction("Audio Glow")
@@ -525,6 +537,52 @@ class MainWindow(QMainWindow):
 
     def _update_clock(self) -> None:
         self._clock_label.setText(datetime.now().strftime("%d %b %Y  %H:%M:%S"))
+
+    def _export_presets(self) -> None:
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Presets",
+            str(Path.home() / f"Simple-Streamer-presets{PRESET_FILE_EXTENSION}"),
+            f"Simple-Streamer presets (*{PRESET_FILE_EXTENSION})",
+        )
+        if not filename:
+            return
+        path = Path(filename)
+        if not path.name.endswith(PRESET_FILE_EXTENSION):
+            path = path.with_name(path.name + PRESET_FILE_EXTENSION)
+        try:
+            export_presets(self._store, path)
+        except OSError as exc:
+            QMessageBox.warning(self, "Export Presets", f"Couldn't save the presets:\n{exc}")
+            return
+        self.statusBar().showMessage(f"Presets exported to {path}", 8000)
+
+    def _import_presets(self) -> None:
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Presets",
+            str(Path.home()),
+            f"Simple-Streamer presets (*{PRESET_FILE_EXTENSION});;All files (*)",
+        )
+        if not filename:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Import Presets",
+            "Replace all your current Radio and Podcast presets with the ones in this file?",
+        )
+        if answer != QMessageBox.Yes:
+            return
+        # The playing slot may be about to become a different station.
+        self._stop_playback()
+        try:
+            import_presets(self._store, Path(filename))
+        except PresetImportError as exc:
+            QMessageBox.warning(self, "Import Presets", f"{exc}\n\nYour presets haven't been changed.")
+            return
+        for deck in self._decks.values():
+            deck.refresh_labels()
+        self.statusBar().showMessage("Presets imported", 8000)
 
     def _on_glow_toggled(self, enabled: bool) -> None:
         self._settings.set_glow_enabled(enabled)
