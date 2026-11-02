@@ -35,6 +35,9 @@ class PlayerBar(QFrame):
     schedule_toggled = Signal(bool)
 
     SEEK_STEP_MS = 15_000
+    # Schedule button colours: (normal, hover) — green when on, red when off.
+    SCHEDULE_ON_COLOURS = ("#2e7d32", "#1b5e20")
+    SCHEDULE_OFF_COLOURS = ("#c62828", "#8e0000")
     VOLUME_BOX_WIDTH = 190
 
     def __init__(self, parent=None):
@@ -152,11 +155,20 @@ class PlayerBar(QFrame):
         self._schedule_button.blockSignals(True)
         self._schedule_button.setChecked(on)
         self._schedule_button.blockSignals(False)
-        self._schedule_button.setText("📅 Schedule: On" if on else "📅 Schedule: Off")
+        self._show_schedule_state(on)
 
     def _on_schedule_button_toggled(self, on: bool) -> None:
-        self._schedule_button.setText("📅 Schedule: On" if on else "📅 Schedule: Off")
+        self._show_schedule_state(on)
         self.schedule_toggled.emit(on)
+
+    def _show_schedule_state(self, on: bool) -> None:
+        self._schedule_button.setText("📅 Schedule: On" if on else "📅 Schedule: Off")
+        normal, hover = self.SCHEDULE_ON_COLOURS if on else self.SCHEDULE_OFF_COLOURS
+        self._schedule_button.setStyleSheet(
+            f"QPushButton {{ background-color: {normal}; color: white; font-weight: 600;"
+            f" border: none; border-radius: 4px; padding: 4px 10px; }}"
+            f"QPushButton:hover, QPushButton:pressed {{ background-color: {hover}; }}"
+        )
 
     def set_volume(self, volume: int) -> None:
         """Show `volume` on the slider without emitting volume_changed."""
