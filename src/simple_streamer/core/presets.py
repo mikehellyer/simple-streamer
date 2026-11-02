@@ -209,6 +209,12 @@ class PresetStore:
             category: [PresetSlot(number=n) for n in range(1, SLOTS_PER_DECK + 1)]
             for category in CATEGORIES
         }
+        # Labels of the DEFAULT_PRESETS already offered to this install, so
+        # each default is placed at most once — a starter preset the user
+        # deletes stays deleted instead of coming back on the next launch.
+        self._offered_defaults: dict[str, set[str]] = {
+            category: set() for category in CATEGORIES
+        }
 
         if explicit_path:
             # A caller-supplied path (e.g. the test suite) opts out of
@@ -224,16 +230,20 @@ class PresetStore:
         self.save()
 
     def _fill_empty_slots_from_defaults(self) -> None:
-        """Populate any still-empty slot from DEFAULT_PRESETS.
+        """Place each not-yet-offered DEFAULT_PRESETS entry in its slot, if
+        that slot is empty.
 
-        Runs on every real startup, not just the very first one: an empty
-        slot means nothing has been assigned to it, so it's always safe to
-        drop in whatever Simple-Streamer currently ships as a default. This
-        is how a newly added default preset, or a bigger deck, reaches a
-        machine that already has a presets.json from an earlier version.
+        Runs on every real startup, so a default added in a later version
+        still reaches a machine with an older presets.json. Each default is
+        only ever offered once, though: an empty slot can mean the user
+        deleted that default, and it mustn't keep coming back. (A file from
+        before this was tracked has no record, so it gets one last fill.)
         """
         for category, entries in DEFAULT_PRESETS.items():
             for number, entry in enumerate(entries, start=1):
+                if entry.label in self._offered_defaults[category]:
+                    continue
+                self._offered_defaults[category].add(entry.label)
                 if self.slot(category, number).is_empty:
                     self.assign(
                         category,
@@ -354,11 +364,22 @@ class PresetStore:
                         fallback_urls=list(raw.get("fallback_urls", [])),
                         image_path=raw.get("image_path", ""),
                     )
+        offered = data.get("offered_defaults", {})
+        if isinstance(offered, dict):
+            for category in CATEGORIES:
+                labels = offered.get(category, [])
+                if isinstance(labels, list):
+                    self._offered_defaults[category] = {
+                        label for label in labels if isinstance(label, str)
+                    }
 
     def save(self) -> None:
         data = {
             category: [asdict(slot) for slot in slots]
             for category, slots in self._decks.items()
+        }
+        data["offered_defaults"] = {
+            category: sorted(labels) for category, labels in self._offered_defaults.items()
         }
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
         self._config_path.write_text(json.dumps(data, indent=2))

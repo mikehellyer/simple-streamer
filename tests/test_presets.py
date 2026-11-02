@@ -119,6 +119,65 @@ def test_real_first_run_seeds_the_starter_presets(tmp_path, monkeypatch):
     assert target.exists()
 
 
+def test_a_deleted_starter_preset_stays_deleted_after_a_restart(tmp_path, monkeypatch):
+    target = tmp_path / "presets.json"
+    monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
+    store = PresetStore()
+    store.clear("radio", 2)
+    store.save()
+
+    restarted = PresetStore()
+    restarted_again = PresetStore()
+
+    assert restarted.slot("radio", 2).is_empty
+    assert restarted_again.slot("radio", 2).is_empty
+
+
+def test_a_starter_preset_moved_elsewhere_doesnt_reappear_in_its_old_slot(tmp_path, monkeypatch):
+    target = tmp_path / "presets.json"
+    monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
+    store = PresetStore()
+    entry = DEFAULT_PRESETS["radio"][7]
+    store.assign("radio", 19, entry.label, entry.url)
+    store.clear("radio", 8)
+    store.save()
+
+    restarted = PresetStore()
+
+    assert restarted.slot("radio", 8).is_empty
+    assert restarted.slot("radio", 19).label == entry.label
+
+
+def test_a_file_from_before_offered_defaults_gets_one_last_fill(tmp_path, monkeypatch):
+    # An install upgrading from a version that didn't record which
+    # defaults it had offered: its empty default slots fill one final
+    # time, then deleting one sticks like on any other install.
+    target = tmp_path / "presets.json"
+    monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
+    old_deck = [{"number": n, "label": "", "url": ""} for n in range(1, SLOTS_PER_DECK + 1)]
+    target.write_text(json.dumps({"radio": old_deck, "podcasts": []}))
+
+    upgraded = PresetStore()
+    assert upgraded.slot("radio", 1).label == DEFAULT_PRESETS["radio"][0].label
+    upgraded.clear("radio", 1)
+    upgraded.save()
+
+    assert PresetStore().slot("radio", 1).is_empty
+
+
+def test_a_default_added_in_a_later_version_still_arrives(tmp_path, monkeypatch):
+    target = tmp_path / "presets.json"
+    monkeypatch.setattr(PresetStore, "_default_config_path", staticmethod(lambda: target))
+    PresetStore()  # an install that has been offered today's defaults
+
+    new_default = presets_module.DefaultPreset("Brand New FM", "https://example.com/new")
+    radio = list(DEFAULT_PRESETS["radio"]) + [new_default]
+    monkeypatch.setitem(presets_module.DEFAULT_PRESETS, "radio", radio)
+    store = PresetStore()
+
+    assert store.slot("radio", len(radio)).label == "Brand New FM"
+
+
 def test_a_new_default_reaches_a_machine_with_an_older_saved_file(tmp_path, monkeypatch):
     # Simulate an existing install: its saved file predates a preset that
     # got added to DEFAULT_PRESETS later (e.g. a new podcast). The slot for
