@@ -129,6 +129,12 @@ class MainWindow(QMainWindow):
         self._player_bar.set_volume(self._settings.volume)
         self._apply_volume(self._settings.volume)
         self._player_bar.volume_changed.connect(self._on_volume_changed)
+        # The button and the Schedule menu's tick are two views of one
+        # switch: the button drives the menu action, whose toggled handler
+        # (_on_schedule_toggled) does the work and updates the button.
+        self._player_bar.schedule_toggled.connect(
+            lambda on: self._schedule_action.setChecked(on)
+        )
         # Saved a moment after the slider stops moving, not on every step.
         self._volume_save_timer = QTimer(self)
         self._volume_save_timer.setSingleShot(True)
@@ -611,6 +617,7 @@ class MainWindow(QMainWindow):
 
     def _on_schedule_toggled(self, on: bool) -> None:
         self._schedule_on = on
+        self._player_bar.set_schedule_on(on)
         # Forgetting what last played makes the first tick act at once:
         # switching on mid-slot jumps straight to what's scheduled now.
         self._schedule_key = None

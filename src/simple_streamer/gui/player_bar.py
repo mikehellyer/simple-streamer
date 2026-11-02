@@ -32,6 +32,7 @@ class PlayerBar(QFrame):
     position_seek_requested = Signal(int)  # absolute milliseconds, from dragging the progress bar
     episodes_requested = Signal()
     volume_changed = Signal(int)  # 0-100
+    schedule_toggled = Signal(bool)
 
     SEEK_STEP_MS = 15_000
     VOLUME_BOX_WIDTH = 190
@@ -76,8 +77,8 @@ class PlayerBar(QFrame):
         # Buttons centered on their own row below the progress bar,
         # rather than sharing space with the title.
         controls_row = QHBoxLayout()
-        # Volume sits at the right-hand end; a same-width spacer on the
-        # left keeps the transport buttons centred.
+        # Volume sits at the right-hand end and the schedule switch at the
+        # left, in same-width boxes so the transport buttons stay centred.
         volume_box = QWidget()
         volume_box.setFixedWidth(self.VOLUME_BOX_WIDTH)
         volume_layout = QHBoxLayout(volume_box)
@@ -94,9 +95,20 @@ class PlayerBar(QFrame):
         volume_layout.addWidget(volume_icon)
         volume_layout.addWidget(self._volume_slider, stretch=1)
         volume_layout.addWidget(self._volume_label)
-        left_spacer = QWidget()
-        left_spacer.setFixedWidth(self.VOLUME_BOX_WIDTH)
-        controls_row.addWidget(left_spacer)
+        schedule_box = QWidget()
+        schedule_box.setFixedWidth(self.VOLUME_BOX_WIDTH)
+        schedule_layout = QHBoxLayout(schedule_box)
+        schedule_layout.setContentsMargins(0, 0, 0, 0)
+        self._schedule_button = QPushButton()
+        self._schedule_button.setCheckable(True)
+        self._schedule_button.setToolTip(
+            "Switch the schedule on or off (Schedule → Edit Schedule… to change it)"
+        )
+        self._schedule_button.toggled.connect(self._on_schedule_button_toggled)
+        schedule_layout.addWidget(self._schedule_button)
+        schedule_layout.addStretch(1)
+        self.set_schedule_on(False)
+        controls_row.addWidget(schedule_box)
         controls_row.addStretch(1)
 
         self._website_url = ""
@@ -134,6 +146,17 @@ class PlayerBar(QFrame):
 
         self._progress = LoadingIndicator()
         outer.addWidget(self._progress)
+
+    def set_schedule_on(self, on: bool) -> None:
+        """Show the schedule as on/off without emitting schedule_toggled."""
+        self._schedule_button.blockSignals(True)
+        self._schedule_button.setChecked(on)
+        self._schedule_button.blockSignals(False)
+        self._schedule_button.setText("📅 Schedule: On" if on else "📅 Schedule: Off")
+
+    def _on_schedule_button_toggled(self, on: bool) -> None:
+        self._schedule_button.setText("📅 Schedule: On" if on else "📅 Schedule: Off")
+        self.schedule_toggled.emit(on)
 
     def set_volume(self, volume: int) -> None:
         """Show `volume` on the slider without emitting volume_changed."""
