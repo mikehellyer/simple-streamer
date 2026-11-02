@@ -19,6 +19,16 @@ the grid with what every slot is tuned to. Playback goes through Qt's
 multimedia engine: Radio slots take a direct stream URL, Podcast slots take
 an RSS feed URL and always play whatever that show's latest episode is.
 
+### Schedule
+
+**Schedule → Edit Schedule…** sets up a weekly listening routine: each item
+plays one of your presets on chosen days. Radio items run from a start to an
+end time; podcast items are listening appointments that play the newest
+episode you haven't finished, after which the scheduled radio comes back.
+Where items overlap, the one that started most recently wins. The schedule
+only runs while **Schedule → Schedule On** is ticked, and it's off every
+time the app starts.
+
 ### Moving presets to another computer
 
 Presets are stored separately on each computer. **File → Export Presets…**

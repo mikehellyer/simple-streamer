@@ -33,6 +33,8 @@ from simple_streamer.core.settings import SettingsStore
 from simple_streamer.core.pls_resolver import resolve_pls
 from simple_streamer.core.icy_metadata import IcyMetadataListener
 from simple_streamer.core.bbc_nowplaying import bbc_service_id_from_url
+from simple_streamer.core.podcasts import recent_episodes
+from simple_streamer.core.schedule import Occurrence, ScheduleStore, current_item, next_start
 from simple_streamer.core.updater import check_for_update, API_TIMEOUT_SECONDS
 from simple_streamer.core.self_update import (
     find_asset_for_this_platform,
@@ -46,8 +48,10 @@ from simple_streamer.gui.workers import BackgroundRunner
 from simple_streamer.gui.audio_visualizer import StereoVisualizer
 from simple_streamer.gui.bbc_now_playing_poller import BbcNowPlayingPoller
 from simple_streamer.gui.audio_glow import AudioGlow
+from simple_streamer.gui.schedule_editor import ScheduleDialog
 
 PROGRESS_SAVE_INTERVAL_MS = 10_000
+SCHEDULE_TICK_MS = 10_000
 
 UPDATE_OWNER = "mikehellyer"
 UPDATE_REPO = "simple-streamer"
@@ -75,6 +79,7 @@ class MainWindow(QMainWindow):
         self._store = PresetStore()
         self._episode_progress = EpisodeProgressStore()
         self._settings = SettingsStore()
+        self._schedule = ScheduleStore()
         self._background = BackgroundRunner(self)
 
         self._audio_output = QAudioOutput()
@@ -140,6 +145,14 @@ class MainWindow(QMainWindow):
         file_menu.addAction("Export Presets…").triggered.connect(self._export_presets)
         file_menu.addAction("Import Presets…").triggered.connect(self._import_presets)
 
+        schedule_menu = self.menuBar().addMenu("Schedule")
+        # Deliberately not remembered between launches: the schedule is
+        # off every time the app starts, until switched on here.
+        self._schedule_action = schedule_menu.addAction("Schedule On")
+        self._schedule_action.setCheckable(True)
+        self._schedule_action.toggled.connect(self._on_schedule_toggled)
+        schedule_menu.addAction("Edit Schedule…").triggered.connect(self._edit_schedule)
+
         view_menu = self.menuBar().addMenu("View")
         self._glow_action = view_menu.addAction("Audio Glow")
         self._glow_action.setCheckable(True)
@@ -151,6 +164,10 @@ class MainWindow(QMainWindow):
         self._clock_label.setStyleSheet("font-family: monospace;")
         # A permanent widget sits on the right of the status bar, separate
         # from the transient left-aligned messages (showMessage() etc.).
+        self._schedule_label = QLabel()
+        self._schedule_label.setStyleSheet("padding-right: 16px;")
+        self._schedule_label.hide()
+        self.statusBar().addPermanentWidget(self._schedule_label)
         self.statusBar().addPermanentWidget(self._clock_label)
         self._clock_timer = QTimer(self)
         self._clock_timer.timeout.connect(self._update_clock)
@@ -189,6 +206,19 @@ class MainWindow(QMainWindow):
         self._bbc_poller = BbcNowPlayingPoller(self._run_in_background)
         self._bbc_poller.title_changed.connect(self._on_bbc_title)
         self._pending_update = None
+
+        self._schedule_on = False
+        # What the schedule last started (an item's run on a given day), so
+        # a tick only acts when that changes — switching station by hand
+        # in between is respected until the next scheduled change.
+        self._schedule_key: Occurrence | None = None
+        # Podcast appointments already heard today: once the episode ends
+        # the appointment is over and the scheduled radio takes over again.
+        self._schedule_finished: set[Occurrence] = set()
+        # (appointment, episode audio URL) while a scheduled episode plays.
+        self._schedule_episode: tuple[Occurrence, str] | None = None
+        self._schedule_timer = QTimer(self)
+        self._schedule_timer.timeout.connect(self._schedule_tick)
 
         self._check_for_updates()
 
@@ -376,6 +406,12 @@ class MainWindow(QMainWindow):
         self._pending_resume_ms = progress.position_ms if progress else None
 
     def _on_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
+        if status == QMediaPlayer.MediaStatus.EndOfMedia and self._schedule_episode is not None:
+            occurrence, audio_url = self._schedule_episode
+            if audio_url == self._current_episode_audio_url:
+                self._schedule_finished.add(occurrence)
+                self._schedule_episode = None
+                QTimer.singleShot(0, self._schedule_tick)
         if self._pending_resume_ms is None:
             return
         if status in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia):
@@ -544,6 +580,116 @@ class MainWindow(QMainWindow):
         # follow it, so stop/now-playing/episodes still point at it.
         if category == self._active_category and self._active_number in renumbered:
             self._active_number = renumbered[self._active_number]
+
+    def _on_schedule_toggled(self, on: bool) -> None:
+        self._schedule_on = on
+        # Forgetting what last played makes the first tick act at once:
+        # switching on mid-slot jumps straight to what's scheduled now.
+        self._schedule_key = None
+        self._schedule_episode = None
+        if on:
+            self._schedule_timer.start(SCHEDULE_TICK_MS)
+            self._schedule_tick()
+        else:
+            self._schedule_timer.stop()
+            self._update_schedule_label(None)
+
+    def _schedule_tick(self) -> None:
+        if not self._schedule_on:
+            return
+        now = datetime.now()
+        item = current_item(self._schedule.items, now, self._schedule_finished)
+        key = Occurrence(item.id, now.date()) if item else None
+        if key != self._schedule_key:
+            previous, self._schedule_key = self._schedule_key, key
+            if item is not None:
+                self._play_schedule_item(item, key)
+            elif previous is not None:
+                self._stop_playback()  # a scheduled slot ended with nothing after it
+        self._update_schedule_label(item, now)
+
+    def _find_preset_for(self, item) -> int | None:
+        """The slot holding this item's station: by URL, so a moved or
+        renamed preset still matches, or else by name, if its URL was edited.
+        """
+        deck = [slot for slot in self._store.deck(item.category) if not slot.is_empty]
+        for slot in deck:
+            if slot.url == item.url:
+                return slot.number
+        for slot in deck:
+            if slot.label == item.label:
+                return slot.number
+        return None
+
+    def _play_schedule_item(self, item, occurrence: Occurrence) -> None:
+        number = self._find_preset_for(item)
+        if number is None:
+            self.statusBar().showMessage(
+                f"Schedule: “{item.label}” isn’t in your presets any more", 10_000
+            )
+            return
+        if item.category == "radio":
+            self._schedule_episode = None
+            already_on = (
+                self._active_category == "radio"
+                and self._active_number == number
+                and self._player.playbackState() == QMediaPlayer.PlayingState
+            )
+            if not already_on:  # e.g. 6 Music at 9am, still 6 Music at 10am
+                self._play_slot("radio", number)
+            return
+        feed_url = self._store.slot("podcasts", number).url
+        self._player_bar.set_now_playing(f"Schedule: finding an episode of {item.label}…")
+        self._run_in_background(
+            lambda: recent_episodes(feed_url),
+            lambda episodes: self._on_schedule_episodes(occurrence, number, episodes),
+        )
+
+    def _on_schedule_episodes(self, occurrence: Occurrence, number: int, episodes) -> None:
+        if not self._schedule_on or self._schedule_key != occurrence:
+            return  # switched off, or the schedule moved on while fetching
+        episode = next(
+            (e for e in episodes if not self._episode_progress.is_completed(e.audio_url)), None
+        )
+        if episode is None:
+            # Nothing unheard (or the feed couldn't be reached): count the
+            # appointment as kept and fall back to the scheduled radio.
+            slot = self._store.slot("podcasts", number)
+            self.statusBar().showMessage(f"Schedule: no new episode of {slot.label} to play", 10_000)
+            self._schedule_finished.add(occurrence)
+            self._schedule_tick()
+            return
+        self._schedule_episode = (occurrence, episode.audio_url)
+        self._play_chosen_episode(number, episode)
+
+    def _update_schedule_label(self, item, now: datetime | None = None) -> None:
+        if not self._schedule_on:
+            self._schedule_label.hide()
+            return
+        now = now or datetime.now()
+        if item is None:
+            text = "Schedule on · nothing scheduled now"
+        else:
+            text = f"Schedule on · now: {item.label}" + (f" ({item.note})" if item.note else "")
+        upcoming = next_start(self._schedule.items, now)
+        if upcoming:
+            when, next_item = upcoming
+            day = "" if when.date() == now.date() else when.strftime("%a ")
+            text += f" · next: {day}{when:%H:%M} {next_item.label}"
+        self._schedule_label.setText(text)
+        self._schedule_label.show()
+
+    def _edit_schedule(self) -> None:
+        dialog = ScheduleDialog(self._schedule.items, self._store, parent=self)
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.accepted.connect(lambda: self._on_schedule_edited(dialog.result_items()))
+        dialog.open()
+
+    def _on_schedule_edited(self, items) -> None:
+        self._schedule.items = items
+        self._schedule.save()
+        # Only acts if the edit changed what should be on right now.
+        self._schedule_tick()
 
     def _export_presets(self) -> None:
         filename, _ = QFileDialog.getSaveFileName(
