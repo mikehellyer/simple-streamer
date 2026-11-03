@@ -111,6 +111,15 @@ class PlayerBar(QFrame):
         text_rows = QVBoxLayout()
         text_rows.setSpacing(6)
         top.addLayout(text_rows, stretch=1)
+        # Schedule switch top right, centred vertically on the artwork.
+        self._schedule_button = QPushButton()
+        self._schedule_button.setCheckable(True)
+        self._schedule_button.setToolTip(
+            "Switch the schedule on or off (Schedule → Edit Schedule… to change it)"
+        )
+        self._schedule_button.toggled.connect(self._on_schedule_button_toggled)
+        self.set_schedule_on(False)
+        top.addWidget(self._schedule_button, alignment=Qt.AlignVCenter)
         outer.addLayout(top)
 
         title_row = QHBoxLayout()
@@ -137,8 +146,8 @@ class PlayerBar(QFrame):
         # Buttons centered on their own row below the progress bar,
         # rather than sharing space with the title.
         controls_row = QHBoxLayout()
-        # Volume sits at the right-hand end and the schedule switch at the
-        # left, in same-width boxes so the transport buttons stay centred.
+        # Volume sits at the right-hand end; a same-width spacer on the
+        # left keeps the transport buttons centred.
         volume_box = QWidget()
         volume_box.setFixedWidth(self.VOLUME_BOX_WIDTH)
         volume_layout = QHBoxLayout(volume_box)
@@ -155,20 +164,9 @@ class PlayerBar(QFrame):
         volume_layout.addWidget(volume_icon)
         volume_layout.addWidget(self._volume_slider, stretch=1)
         volume_layout.addWidget(self._volume_label)
-        schedule_box = QWidget()
-        schedule_box.setFixedWidth(self.VOLUME_BOX_WIDTH)
-        schedule_layout = QHBoxLayout(schedule_box)
-        schedule_layout.setContentsMargins(0, 0, 0, 0)
-        self._schedule_button = QPushButton()
-        self._schedule_button.setCheckable(True)
-        self._schedule_button.setToolTip(
-            "Switch the schedule on or off (Schedule → Edit Schedule… to change it)"
-        )
-        self._schedule_button.toggled.connect(self._on_schedule_button_toggled)
-        schedule_layout.addWidget(self._schedule_button)
-        schedule_layout.addStretch(1)
-        self.set_schedule_on(False)
-        controls_row.addWidget(schedule_box)
+        left_spacer = QWidget()
+        left_spacer.setFixedWidth(self.VOLUME_BOX_WIDTH)
+        controls_row.addWidget(left_spacer)
         controls_row.addStretch(1)
 
         self._website_url = ""
