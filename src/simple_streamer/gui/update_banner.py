@@ -4,6 +4,8 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton
 
+from simple_streamer.gui.plain_text import plain_label
+
 RED = "#c0392b"
 
 
@@ -18,7 +20,7 @@ class UpdateBanner(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
 
-        self._label = QLabel()
+        self._label = plain_label()  # shows installer error output too
         self._label.setStyleSheet(f"color: {RED}; font-weight: 600;")
         # set_status() can now show a failed installer's actual stderr
         # text (see MainWindow._on_installer_finished) — unbounded

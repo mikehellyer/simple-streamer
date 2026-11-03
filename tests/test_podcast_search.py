@@ -14,7 +14,7 @@ class _Response:
     def __exit__(self, *exc):
         return False
 
-    def read(self):
+    def read(self, size=-1):
         return self._body
 
 
@@ -44,7 +44,7 @@ def test_returns_nothing_for_a_blank_query():
 
 
 def test_parses_a_podcast_result():
-    with patch("urllib.request.urlopen", return_value=_Response(_payload(_episode()))):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(_payload(_episode()))):
         results = search_podcasts("old time radio")
     assert len(results) == 1
     podcast = results[0]
@@ -57,7 +57,7 @@ def test_parses_a_podcast_result():
 
 def test_falls_back_to_the_100px_artwork():
     with patch(
-        "urllib.request.urlopen",
+        "simple_streamer.core.http._OPENER.open",
         return_value=_Response(_payload(_episode(artworkUrl600=""))),
     ):
         results = search_podcasts("old time radio")
@@ -66,7 +66,7 @@ def test_falls_back_to_the_100px_artwork():
 
 def test_falls_back_to_track_view_url_for_website():
     with patch(
-        "urllib.request.urlopen",
+        "simple_streamer.core.http._OPENER.open",
         return_value=_Response(_payload(_episode(collectionViewUrl=""))),
     ):
         results = search_podcasts("old time radio")
@@ -75,7 +75,7 @@ def test_falls_back_to_track_view_url_for_website():
 
 def test_skips_a_result_with_no_feed_url():
     with patch(
-        "urllib.request.urlopen",
+        "simple_streamer.core.http._OPENER.open",
         return_value=_Response(_payload(_episode(feedUrl=""))),
     ):
         assert search_podcasts("old time radio") == []
@@ -83,7 +83,7 @@ def test_skips_a_result_with_no_feed_url():
 
 def test_skips_a_result_with_no_name():
     with patch(
-        "urllib.request.urlopen",
+        "simple_streamer.core.http._OPENER.open",
         return_value=_Response(_payload(_episode(collectionName="", trackName=""))),
     ):
         assert search_podcasts("old time radio") == []
@@ -91,7 +91,7 @@ def test_skips_a_result_with_no_name():
 
 def test_description_uses_singular_episode_for_one():
     with patch(
-        "urllib.request.urlopen",
+        "simple_streamer.core.http._OPENER.open",
         return_value=_Response(_payload(_episode(trackCount=1))),
     ):
         results = search_podcasts("old time radio")
@@ -100,7 +100,7 @@ def test_description_uses_singular_episode_for_one():
 
 def test_description_omits_missing_fields_gracefully():
     with patch(
-        "urllib.request.urlopen",
+        "simple_streamer.core.http._OPENER.open",
         return_value=_Response(
             _payload(_episode(artistName="", primaryGenreName="", trackCount=None))
         ),
@@ -110,5 +110,5 @@ def test_description_omits_missing_fields_gracefully():
 
 
 def test_returns_nothing_when_unreachable():
-    with patch("urllib.request.urlopen", side_effect=OSError("offline")):
+    with patch("simple_streamer.core.http._OPENER.open", side_effect=OSError("offline")):
         assert search_podcasts("old time radio") == []

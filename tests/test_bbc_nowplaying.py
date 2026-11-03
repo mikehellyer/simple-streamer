@@ -39,20 +39,20 @@ class _Response:
     def __exit__(self, *exc):
         return False
 
-    def read(self):
+    def read(self, size=-1):
         return self._body
 
 
 def test_fetch_now_playing_formats_artist_and_track():
     body = b'{"data": [{"titles": {"primary": "Rihanna", "secondary": "We Found Love"}}]}'
-    with patch("urllib.request.urlopen", return_value=_Response(body)):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(body)):
         info = fetch_now_playing("bbc_radio_one")
     assert info.title == "Rihanna - We Found Love"
 
 
 def test_fetch_now_playing_falls_back_to_track_only_without_an_artist():
     body = b'{"data": [{"titles": {"primary": null, "secondary": "News at Nine"}}]}'
-    with patch("urllib.request.urlopen", return_value=_Response(body)):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(body)):
         info = fetch_now_playing("bbc_radio_fourfm")
     assert info.title == "News at Nine"
 
@@ -61,10 +61,10 @@ def test_fetch_now_playing_returns_none_when_no_segment_data():
     # Real behavior for speech stations like Radio 4 or 5 Live — not an
     # error, just nothing to report.
     body = b'{"total": 0, "data": []}'
-    with patch("urllib.request.urlopen", return_value=_Response(body)):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(body)):
         assert fetch_now_playing("bbc_radio_fourfm") is None
 
 
 def test_fetch_now_playing_returns_none_when_unreachable():
-    with patch("urllib.request.urlopen", side_effect=OSError("network down")):
+    with patch("simple_streamer.core.http._OPENER.open", side_effect=OSError("network down")):
         assert fetch_now_playing("bbc_radio_one") is None

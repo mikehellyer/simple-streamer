@@ -21,22 +21,22 @@ class _Response:
     def __exit__(self, *exc):
         return False
 
-    def read(self):
+    def read(self, size=-1):
         return self._body
 
 
 def test_resolve_pls_extracts_the_file1_url():
-    with patch("urllib.request.urlopen", return_value=_Response(SAMPLE_PLS)):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(SAMPLE_PLS)):
         url = resolve_pls("https://example.com/station.pls")
 
     assert url == "http://edge-bauermz-03-gos2.sharp-stream.com/planetrock.mp3?aw_0_1st.skey=123&aw_0_1st.playerid=BMUK_RPi"
 
 
 def test_resolve_pls_returns_none_when_unreachable():
-    with patch("urllib.request.urlopen", side_effect=OSError("network down")):
+    with patch("simple_streamer.core.http._OPENER.open", side_effect=OSError("network down")):
         assert resolve_pls("https://example.com/station.pls") is None
 
 
 def test_resolve_pls_returns_none_when_no_file_line():
-    with patch("urllib.request.urlopen", return_value=_Response(b"[playlist]\nNumberOfEntries=0\n")):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(b"[playlist]\nNumberOfEntries=0\n")):
         assert resolve_pls("https://example.com/station.pls") is None

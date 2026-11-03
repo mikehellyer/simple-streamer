@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
+from simple_streamer.gui.plain_text import plain_label, plain_tooltip
 from simple_streamer.core.image_search import (
     ALLOWED_LOCAL_IMAGE_EXTENSIONS,
     LOCAL_IMAGE_SPEC_HINT,
@@ -46,7 +47,7 @@ class ImageSearchDialog(QDialog):
         self._chosen: Optional[FetchedImage] = None
 
         layout = QVBoxLayout(self)
-        self._status = QLabel(f"Searching for “{query}”…")
+        self._status = plain_label(f"Searching for “{query}”…")
         layout.addWidget(self._status)
 
         scroll = QScrollArea()
@@ -91,7 +92,7 @@ class ImageSearchDialog(QDialog):
             )
             button.setIconSize(QSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE))
             button.setFixedSize(THUMBNAIL_SIZE + 24, THUMBNAIL_SIZE + 24)
-            button.setToolTip(item.title)
+            button.setToolTip(plain_tooltip(item.title))
             button.clicked.connect(lambda _checked=False, i=item: self._choose(i))
             row, col = divmod(shown, GRID_COLUMNS)
             self._grid.addWidget(button, row, col)

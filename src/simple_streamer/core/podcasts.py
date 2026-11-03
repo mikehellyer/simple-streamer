@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Optional
 
-from simple_streamer.core.http import SSL_CONTEXT
+from simple_streamer.core.http import read_capped, urlopen, MAX_FEED_BYTES
 
 FEED_TIMEOUT_SECONDS = 8
 DEFAULT_RECENT_LIMIT = 30
@@ -36,10 +36,10 @@ def recent_episodes(feed_url: str, limit: int = DEFAULT_RECENT_LIMIT) -> list[Ep
         feed_url, headers={"User-Agent": "Simple-Streamer/1 (+podcast player)"}
     )
     try:
-        with urllib.request.urlopen(
-            request, timeout=FEED_TIMEOUT_SECONDS, context=SSL_CONTEXT
+        with urlopen(
+            request, timeout=FEED_TIMEOUT_SECONDS
         ) as response:
-            root = ET.fromstring(response.read())
+            root = ET.fromstring(read_capped(response, MAX_FEED_BYTES))
     except (OSError, ET.ParseError):
         return []
 

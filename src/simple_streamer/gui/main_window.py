@@ -37,6 +37,7 @@ from simple_streamer.core.podcasts import recent_episodes
 from simple_streamer.core.schedule import Occurrence, ScheduleStore, current_item, next_start
 from simple_streamer.core.updater import check_for_update, API_TIMEOUT_SECONDS
 from simple_streamer.core.self_update import (
+    UpdateVerificationError,
     find_asset_for_this_platform,
     download_asset,
     launch_installer,
@@ -49,6 +50,7 @@ from simple_streamer.gui.audio_visualizer import StereoVisualizer
 from simple_streamer.gui.bbc_now_playing_poller import BbcNowPlayingPoller
 from simple_streamer.gui.audio_glow import AudioGlow
 from simple_streamer.gui.schedule_editor import ScheduleDialog
+from simple_streamer.gui.plain_text import plain_label, plain_tooltip
 
 PROGRESS_SAVE_INTERVAL_MS = 10_000
 SCHEDULE_TICK_MS = 10_000
@@ -184,7 +186,7 @@ class MainWindow(QMainWindow):
         self._clock_label.setStyleSheet("font-family: monospace;")
         # A permanent widget sits on the right of the status bar, separate
         # from the transient left-aligned messages (showMessage() etc.).
-        self._schedule_label = QLabel()
+        self._schedule_label = plain_label()
         self._schedule_label.setStyleSheet("padding-right: 16px;")
         self._schedule_label.hide()
         self.statusBar().addPermanentWidget(self._schedule_label)
@@ -534,7 +536,7 @@ class MainWindow(QMainWindow):
     def _start_update(self) -> None:
         if self._pending_update is None:
             return
-        asset_url = find_asset_for_this_platform(self._pending_update.assets)
+        asset_url = find_asset_for_this_platform(self._pending_update.assets, UPDATE_OWNER, UPDATE_REPO)
         if asset_url is None:
             self._update_banner.set_status(
                 f"No installer for this platform — see {self._pending_update.url}"
@@ -554,7 +556,11 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            process = launch_installer(path)
+            process = launch_installer(path, expected_version=self._pending_update.version)
+        except UpdateVerificationError as exc:
+            self._update_banner.set_status(f"Update not installed — {exc}")
+            self._update_banner.set_busy(False)
+            return
         except OSError:
             self._update_banner.set_status(f"Downloaded to {path} — open it manually")
             self._update_banner.set_busy(False)
@@ -724,7 +730,7 @@ class MainWindow(QMainWindow):
             when, next_item = upcoming
             day = "" if when.date() == now.date() else when.strftime("%a ")
             text += f" · next: {day}{when:%H:%M} {next_item.label}"
-        self._schedule_label.setToolTip(text)
+        self._schedule_label.setToolTip(plain_tooltip(text))
         self._schedule_label.setText(
             self._schedule_label.fontMetrics().elidedText(text, Qt.ElideRight, SCHEDULE_LABEL_MAX_WIDTH)
         )

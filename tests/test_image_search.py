@@ -19,7 +19,7 @@ class _Response:
     def __exit__(self, *exc):
         return False
 
-    def read(self):
+    def read(self, size=-1):
         return self._body
 
 
@@ -33,7 +33,7 @@ def test_podcast_search_uses_itunes_artwork_and_collection_name():
         b'"artistName": "Someone", "artworkUrl600": "https://x/art600.jpg", '
         b'"artworkUrl100": "https://x/art100.jpg"}]}'
     )
-    with patch("urllib.request.urlopen", return_value=_Response(body)):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(body)):
         results = search_images("podcasts", "retro hour")
     assert len(results) == 1
     assert results[0].title == "The Retro Hour"
@@ -42,44 +42,44 @@ def test_podcast_search_uses_itunes_artwork_and_collection_name():
 
 def test_podcast_search_falls_back_to_the_100px_artwork():
     body = b'{"results": [{"artistName": "Someone", "artworkUrl100": "https://x/art100.jpg"}]}'
-    with patch("urllib.request.urlopen", return_value=_Response(body)):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(body)):
         results = search_images("podcasts", "retro hour")
     assert results[0].image_url == "https://x/art100.jpg"
 
 
 def test_podcast_search_skips_results_missing_artwork():
     body = b'{"results": [{"collectionName": "No Art Here"}]}'
-    with patch("urllib.request.urlopen", return_value=_Response(body)):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(body)):
         assert search_images("podcasts", "retro hour") == []
 
 
 def test_radio_search_uses_radio_browser_favicon_and_name():
     body = b'[{"name": "BBC Radio 1", "favicon": "https://x/bbc1.png"}]'
-    with patch("urllib.request.urlopen", return_value=_Response(body)):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(body)):
         results = search_images("radio", "bbc radio 1")
     assert results == [type(results[0])(title="BBC Radio 1", image_url="https://x/bbc1.png")]
 
 
 def test_radio_search_skips_stations_without_a_favicon():
     body = b'[{"name": "No Logo Station", "favicon": ""}]'
-    with patch("urllib.request.urlopen", return_value=_Response(body)):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(body)):
         assert search_images("radio", "no logo") == []
 
 
 def test_search_returns_nothing_when_unreachable():
-    with patch("urllib.request.urlopen", side_effect=OSError("offline")):
+    with patch("simple_streamer.core.http._OPENER.open", side_effect=OSError("offline")):
         assert search_images("radio", "bbc radio 1") == []
-    with patch("urllib.request.urlopen", side_effect=OSError("offline")):
+    with patch("simple_streamer.core.http._OPENER.open", side_effect=OSError("offline")):
         assert search_images("podcasts", "retro hour") == []
 
 
 def test_download_image_returns_the_response_body():
-    with patch("urllib.request.urlopen", return_value=_Response(b"\x89PNG...")):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(b"\x89PNG...")):
         assert download_image("https://x/art.png") == b"\x89PNG..."
 
 
 def test_download_image_returns_none_when_unreachable():
-    with patch("urllib.request.urlopen", side_effect=OSError("offline")):
+    with patch("simple_streamer.core.http._OPENER.open", side_effect=OSError("offline")):
         assert download_image("https://x/art.png") is None
 
 

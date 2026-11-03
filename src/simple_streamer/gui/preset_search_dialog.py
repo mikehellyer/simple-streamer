@@ -29,6 +29,8 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
 )
 
+from simple_streamer.gui.plain_text import plain_label
+
 _WORDING = {
     "station": {
         "title": "Find New Station",
@@ -68,7 +70,7 @@ class PresetSearchDialog(QDialog):
         search_row.addWidget(self._search_button)
         layout.addLayout(search_row)
 
-        self._status = QLabel(wording["initial_hint"])
+        self._status = plain_label(wording["initial_hint"])  # shows search terms/result names
         self._status.setWordWrap(True)
         layout.addWidget(self._status)
 

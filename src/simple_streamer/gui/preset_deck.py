@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QMenu,
 )
 
+from simple_streamer.gui.plain_text import plain_label, plain_tooltip
 from simple_streamer.core.presets import PresetStore, SLOTS_PER_PAGE, MAX_PAGES
 from simple_streamer.core.episode_progress import EpisodeProgressStore
 from simple_streamer.core.text import shorten, PRESET_BUTTON_LABEL_MAX_CHARS
@@ -174,7 +175,7 @@ class LegendOverlay(QFrame):
         for position, slot in enumerate(self._store.page_slots(self._category, page), start=1):
             text = f"{slot.number}   {slot.label or '(empty)'}"
             row, col = divmod(position - 1, 2)
-            self._grid.addWidget(QLabel(text), row + 1, col)
+            self._grid.addWidget(plain_label(text), row + 1, col)
 
 
 class PresetDeckWidget(QWidget):
@@ -313,7 +314,7 @@ class PresetDeckWidget(QWidget):
             if slot.label:
                 button.setText(shorten(slot.label, PRESET_BUTTON_LABEL_MAX_CHARS))
                 tooltip = f"{slot.label}\n{slot.website}" if slot.website else slot.label
-                button.setToolTip(tooltip)
+                button.setToolTip(plain_tooltip(tooltip))
             else:
                 button.setText("")
                 button.setToolTip("")

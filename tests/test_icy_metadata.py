@@ -36,7 +36,7 @@ def test_reports_a_stream_title_change():
     response = _FakeResponse({"icy-metaint": str(metaint)}, body)
 
     titles = []
-    with patch("urllib.request.urlopen", return_value=response):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=response):
         listener = IcyMetadataListener("http://example.com/stream", titles.append)
         listener.start()
         for _ in range(50):
@@ -67,7 +67,7 @@ def test_ignores_a_junk_placeholder_title():
     response = _FakeResponse({"icy-metaint": str(metaint)}, body)
 
     titles = []
-    with patch("urllib.request.urlopen", return_value=response):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=response):
         listener = IcyMetadataListener("http://example.com/stream", titles.append)
         listener.start()
         for _ in range(50):
@@ -83,7 +83,7 @@ def test_ignores_a_junk_placeholder_title():
 def test_exits_cleanly_when_no_icy_metaint_header():
     response = _FakeResponse({}, b"\x00" * 100)
 
-    with patch("urllib.request.urlopen", return_value=response):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=response):
         listener = IcyMetadataListener("http://example.com/stream", lambda t: None)
         listener.start()
         listener._thread.join(timeout=2)
@@ -93,7 +93,7 @@ def test_exits_cleanly_when_no_icy_metaint_header():
 
 
 def test_exits_cleanly_when_unreachable():
-    with patch("urllib.request.urlopen", side_effect=OSError("network down")):
+    with patch("simple_streamer.core.http._OPENER.open", side_effect=OSError("network down")):
         listener = IcyMetadataListener("http://example.com/stream", lambda t: None)
         listener.start()
         listener._thread.join(timeout=2)

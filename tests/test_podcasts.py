@@ -56,17 +56,17 @@ class _Response:
     def __exit__(self, *exc):
         return False
 
-    def read(self):
+    def read(self, size=-1):
         return self._body
 
 
 def test_recent_episodes_returns_none_for_malformed_xml():
-    with patch("urllib.request.urlopen", return_value=_Response(b"not xml")):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(b"not xml")):
         assert recent_episodes("https://example.com/feed.xml") == []
 
 
 def test_recent_episodes_returns_up_to_the_limit_newest_first():
-    with patch("urllib.request.urlopen", return_value=_Response(SAMPLE_FEED)):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(SAMPLE_FEED)):
         episodes = recent_episodes("https://example.com/feed.xml", limit=1)
     assert [e.title for e in episodes] == ["548: Before Photoshop"]
 
@@ -81,7 +81,7 @@ def _feed_with_episodes(count: int) -> bytes:
 
 
 def test_recent_episodes_defaults_to_the_30_most_recent():
-    with patch("urllib.request.urlopen", return_value=_Response(_feed_with_episodes(45))):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(_feed_with_episodes(45))):
         episodes = recent_episodes("https://example.com/feed.xml")
     assert len(episodes) == 30
     assert episodes[0].title == "Episode 45"
@@ -89,18 +89,18 @@ def test_recent_episodes_defaults_to_the_30_most_recent():
 
 
 def test_recent_episodes_returns_all_when_feed_has_fewer_than_the_default():
-    with patch("urllib.request.urlopen", return_value=_Response(_feed_with_episodes(12))):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(_feed_with_episodes(12))):
         episodes = recent_episodes("https://example.com/feed.xml")
     assert len(episodes) == 12
 
 
 def test_recent_episodes_returns_none_when_unreachable():
-    with patch("urllib.request.urlopen", side_effect=OSError("network down")):
+    with patch("simple_streamer.core.http._OPENER.open", side_effect=OSError("network down")):
         assert recent_episodes("https://example.com/feed.xml") == []
 
 
 def test_recent_episodes_skips_items_with_no_audio_but_keeps_the_rest():
-    with patch("urllib.request.urlopen", return_value=_Response(FEED_WITH_METADATA)):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(FEED_WITH_METADATA)):
         episodes = recent_episodes("https://example.com/feed.xml", limit=10)
     assert [e.title for e in episodes] == [
         "548: Before Photoshop",
@@ -110,7 +110,7 @@ def test_recent_episodes_skips_items_with_no_audio_but_keeps_the_rest():
 
 
 def test_recent_episodes_parses_pub_date_and_hms_duration():
-    with patch("urllib.request.urlopen", return_value=_Response(FEED_WITH_METADATA)):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(FEED_WITH_METADATA)):
         episodes = recent_episodes("https://example.com/feed.xml", limit=1)
     episode = episodes[0]
     assert episode.published == "Sun, 14 Sep 2026 10:13:11 +0000"
@@ -118,13 +118,13 @@ def test_recent_episodes_parses_pub_date_and_hms_duration():
 
 
 def test_recent_episodes_parses_plain_seconds_duration():
-    with patch("urllib.request.urlopen", return_value=_Response(FEED_WITH_METADATA)):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(FEED_WITH_METADATA)):
         episodes = recent_episodes("https://example.com/feed.xml", limit=10)
     assert episodes[1].duration_seconds == 2823
 
 
 def test_recent_episodes_parses_mm_ss_duration():
-    with patch("urllib.request.urlopen", return_value=_Response(FEED_WITH_METADATA)):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(FEED_WITH_METADATA)):
         episodes = recent_episodes("https://example.com/feed.xml", limit=10)
     assert episodes[2].duration_seconds == 45 * 60 + 10
 
@@ -132,6 +132,6 @@ def test_recent_episodes_parses_mm_ss_duration():
 def test_recent_episodes_leaves_duration_none_when_missing_or_unparseable():
     feed = b"""<rss><channel><item><title>x</title>
         <enclosure url="https://example.com/x.mp3"/></item></channel></rss>"""
-    with patch("urllib.request.urlopen", return_value=_Response(feed)):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response(feed)):
         episodes = recent_episodes("https://example.com/feed.xml")
     assert episodes[0].duration_seconds is None

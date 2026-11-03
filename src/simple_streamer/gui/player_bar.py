@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from simple_streamer.core.http import is_web_url
+from simple_streamer.gui.plain_text import plain_tooltip
 from simple_streamer.core.browser_raise import try_raise_browser_window
 from simple_streamer.core.text import format_duration_ms
 from simple_streamer.gui.loading_indicator import LoadingIndicator
@@ -45,12 +47,13 @@ class ElidedLabel(QLabel):
     def __init__(self, text: str = "", parent=None):
         super().__init__(parent)
         self._full_text = ""
+        self.setTextFormat(Qt.PlainText)  # titles come from streams/feeds
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.setText(text)
 
     def setText(self, text: str) -> None:
         self._full_text = text
-        self.setToolTip(text)
+        self.setToolTip(plain_tooltip(text))
         self._elide()
 
     def full_text(self) -> str:
@@ -262,7 +265,11 @@ class PlayerBar(QFrame):
         self._progress.set_loading(loading)
 
     def set_website(self, url: str) -> None:
-        self._website_url = url or ""
+        # Only ever a web page: a preset's website can come from a station
+        # directory anyone can edit, or an imported preset file, and
+        # openUrl() would hand a file:// or other address straight to the
+        # OS — which, on Windows, can mean running a program.
+        self._website_url = url if url and is_web_url(url) else ""
         self._website_button.setVisible(bool(self._website_url))
 
     def set_episodes_available(self, available: bool) -> None:
@@ -323,6 +330,6 @@ class PlayerBar(QFrame):
         self.position_seek_requested.emit(self._progress_slider.value())
 
     def _open_website(self) -> None:
-        if self._website_url:
+        if self._website_url and is_web_url(self._website_url):
             QDesktopServices.openUrl(QUrl(self._website_url))
             try_raise_browser_window()

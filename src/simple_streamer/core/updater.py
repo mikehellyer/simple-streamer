@@ -10,7 +10,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Optional
 
-from simple_streamer.core.http import SSL_CONTEXT
+from simple_streamer.core.http import read_capped, urlopen, MAX_API_RESPONSE_BYTES
 
 API_TIMEOUT_SECONDS = 4
 
@@ -45,8 +45,8 @@ def check_for_update(current_version: str, owner: str, repo: str) -> Optional[Up
     url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
     request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
     try:
-        with urllib.request.urlopen(request, timeout=API_TIMEOUT_SECONDS, context=SSL_CONTEXT) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        with urlopen(request, timeout=API_TIMEOUT_SECONDS) as response:
+            payload = json.loads(read_capped(response, MAX_API_RESPONSE_BYTES).decode("utf-8"))
     except (OSError, ValueError, json.JSONDecodeError):
         return None
 

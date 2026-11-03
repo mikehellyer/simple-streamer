@@ -13,7 +13,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
-from simple_streamer.core.http import SSL_CONTEXT
+from simple_streamer.core.http import read_capped, urlopen, MAX_API_RESPONSE_BYTES
 
 REQUEST_TIMEOUT_SECONDS = 6
 MAX_RESULTS = 20
@@ -49,10 +49,10 @@ def search_stations(query: str) -> list[StationResult]:
         },
     )
     try:
-        with urllib.request.urlopen(
-            request, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
+        with urlopen(
+            request, timeout=REQUEST_TIMEOUT_SECONDS
         ) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+            payload = json.loads(read_capped(response, MAX_API_RESPONSE_BYTES).decode("utf-8"))
     except (OSError, ValueError, json.JSONDecodeError):
         return []
 

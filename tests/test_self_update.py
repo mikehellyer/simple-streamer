@@ -2,41 +2,65 @@ import io
 import subprocess
 from unittest.mock import patch
 
+import pytest
+
 from simple_streamer.core.self_update import (
+    UpdateVerificationError,
     download_asset,
     find_asset_for_this_platform,
     launch_installer,
+    verify_deb,
 )
 
-
+DL = "https://github.com/mikehellyer/simple-streamer/releases/download/v0.2.0/"
 ASSETS = [
-    ("Simple-Streamer-0.2.0-Windows-Setup.exe", "https://dl/win.exe"),
-    ("Simple-Streamer-0.2.0-macOS.dmg", "https://dl/mac.dmg"),
-    ("simple-streamer_0.2.0_amd64.deb", "https://dl/lin.deb"),
+    ("Simple-Streamer-0.2.0-Windows-Setup.exe", DL + "Simple-Streamer-0.2.0-Windows-Setup.exe"),
+    ("Simple-Streamer-0.2.0-macOS.dmg", DL + "Simple-Streamer-0.2.0-macOS.dmg"),
+    ("simple-streamer_0.2.0_amd64.deb", DL + "simple-streamer_0.2.0_amd64.deb"),
 ]
+
+
+def find(assets):
+    return find_asset_for_this_platform(assets, "mikehellyer", "simple-streamer")
 
 
 def test_finds_windows_asset():
     with patch("sys.platform", "win32"):
-        assert find_asset_for_this_platform(ASSETS) == "https://dl/win.exe"
+        assert find(ASSETS) == ASSETS[0][1]
 
 
 def test_finds_macos_asset():
     with patch("sys.platform", "darwin"):
-        assert find_asset_for_this_platform(ASSETS) == "https://dl/mac.dmg"
+        assert find(ASSETS) == ASSETS[1][1]
 
 
 def test_finds_linux_asset():
     with patch("sys.platform", "linux"):
-        assert find_asset_for_this_platform(ASSETS) == "https://dl/lin.deb"
+        assert find(ASSETS) == ASSETS[2][1]
 
 
 def test_returns_none_when_no_matching_asset():
     with patch("sys.platform", "win32"):
-        assert find_asset_for_this_platform(ASSETS[1:]) is None
+        assert find(ASSETS[1:]) is None
+
+
+def test_ignores_an_asset_linking_anywhere_but_this_repos_releases():
+    elsewhere = [
+        ("simple-streamer_0.2.0_amd64.deb", "https://evil.example/simple-streamer_0.2.0_amd64.deb"),
+        ("simple-streamer_0.2.0_amd64.deb", "https://github.com/someone-else/simple-streamer/releases/download/v0.2.0/x.deb"),
+    ]
+    with patch("sys.platform", "linux"):
+        assert find(elsewhere) is None
 
 
 class _Response(io.BytesIO):
+    def __init__(self, body, final_url="https://objects.githubusercontent.com/github-production-release-asset/1"):
+        super().__init__(body)
+        self._final_url = final_url
+
+    def geturl(self):
+        return self._final_url
+
     def __enter__(self):
         return self
 
@@ -44,19 +68,89 @@ class _Response(io.BytesIO):
         return False
 
 
+OPEN = "simple_streamer.core.http._OPENER.open"
+
+
 def test_download_asset_writes_the_file(tmp_path, monkeypatch):
     monkeypatch.setattr("tempfile.mkdtemp", lambda prefix="": str(tmp_path))
-    with patch("urllib.request.urlopen", return_value=_Response(b"installer bytes")):
-        path = download_asset("https://dl/Simple-Streamer-0.2.0-macOS.dmg")
+    with patch("sys.platform", "darwin"), patch(OPEN, return_value=_Response(b"installer bytes")):
+        path = download_asset(DL + "Simple-Streamer-0.2.0-macOS.dmg")
 
     assert path is not None
-    assert path.name == "Simple-Streamer-0.2.0-macOS.dmg"
+    assert path.name == "simple-streamer-update.dmg"  # fixed, not taken from the link
     assert path.read_bytes() == b"installer bytes"
 
 
 def test_download_asset_returns_none_when_unreachable():
-    with patch("urllib.request.urlopen", side_effect=OSError("network down")):
-        assert download_asset("https://dl/whatever.exe") is None
+    with patch(OPEN, side_effect=OSError("network down")):
+        assert download_asset(DL + "whatever.exe") is None
+
+
+def test_download_asset_refuses_a_non_github_link():
+    with patch(OPEN, return_value=_Response(b"x")) as mock_open:
+        assert download_asset("https://evil.example/simple-streamer.deb") is None
+    mock_open.assert_not_called()
+
+
+def test_download_asset_refuses_a_redirect_away_from_github(tmp_path, monkeypatch):
+    monkeypatch.setattr("tempfile.mkdtemp", lambda prefix="": str(tmp_path / "dl"))
+    (tmp_path / "dl").mkdir()
+    with patch(OPEN, return_value=_Response(b"x", final_url="https://evil.example/x.deb")):
+        assert download_asset(DL + "simple-streamer_0.2.0_amd64.deb") is None
+    assert not (tmp_path / "dl").exists()  # nothing left behind
+
+
+def test_download_asset_refuses_an_implausibly_large_file(monkeypatch):
+    monkeypatch.setattr("simple_streamer.core.self_update.MAX_INSTALLER_BYTES", 10)
+    with patch(OPEN, return_value=_Response(b"x" * 11)):
+        assert download_asset(DL + "simple-streamer_0.2.0_amd64.deb") is None
+
+
+def _dpkg_fields(stdout, returncode=0):
+    return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
+
+
+def test_verify_deb_accepts_the_simple_streamer_package_at_the_expected_version():
+    with patch("simple_streamer.core.self_update.shutil.which", return_value="/usr/bin/dpkg-deb"), patch(
+        "simple_streamer.core.self_update.subprocess.run",
+        return_value=_dpkg_fields("Package: simple-streamer\nVersion: 0.2.0\n"),
+    ):
+        verify_deb("/tmp/x.deb", "v0.2.0")
+
+
+@pytest.mark.parametrize(
+    "stdout,returncode",
+    [
+        ("Package: openssh-server\nVersion: 0.2.0\n", 0),
+        ("Package: simple-streamer\nVersion: 0.1.9\n", 0),
+        ("", 2),  # not a .deb at all
+    ],
+    ids=["other-package", "wrong-version", "not-a-deb"],
+)
+def test_verify_deb_rejects_anything_else(stdout, returncode):
+    with patch("simple_streamer.core.self_update.shutil.which", return_value="/usr/bin/dpkg-deb"), patch(
+        "simple_streamer.core.self_update.subprocess.run", return_value=_dpkg_fields(stdout, returncode)
+    ):
+        with pytest.raises(UpdateVerificationError):
+            verify_deb("/tmp/x.deb", "v0.2.0")
+
+
+def test_verify_deb_works_against_a_real_package(tmp_path):
+    # Against an actual .deb built here, when the tools exist.
+    import shutil as sh
+    if not (sh.which("dpkg-deb")):
+        pytest.skip("dpkg-deb not available")
+    root = tmp_path / "pkg"
+    (root / "DEBIAN").mkdir(parents=True)
+    (root / "DEBIAN" / "control").write_text(
+        "Package: simple-streamer\nVersion: 0.2.0\nArchitecture: all\n"
+        "Maintainer: test <t@example.com>\nDescription: test\n"
+    )
+    deb = tmp_path / "test.deb"
+    subprocess.run(["dpkg-deb", "--build", str(root), str(deb)], check=True, capture_output=True)
+    verify_deb(deb, "v0.2.0")
+    with pytest.raises(UpdateVerificationError):
+        verify_deb(deb, "v0.3.0")
 
 
 def test_launch_installer_linux_prefers_pkexec_apt_over_xdg_open():
@@ -70,8 +164,13 @@ def test_launch_installer_linux_prefers_pkexec_apt_over_xdg_open():
 
     with patch("simple_streamer.core.self_update.sys.platform", "linux"), patch(
         "simple_streamer.core.self_update.shutil.which", side_effect=fake_which
-    ), patch("simple_streamer.core.self_update.subprocess.Popen") as mock_popen:
-        result = launch_installer("/tmp/simple-streamer_1.2.3_amd64.deb")
+    ), patch("simple_streamer.core.self_update.verify_deb") as mock_verify, patch(
+        "simple_streamer.core.self_update.subprocess.Popen"
+    ) as mock_popen:
+        result = launch_installer("/tmp/simple-streamer_1.2.3_amd64.deb", expected_version="v1.2.3")
+
+    # Checked before it's installed as root.
+    mock_verify.assert_called_once_with("/tmp/simple-streamer_1.2.3_amd64.deb", "v1.2.3")
 
     # Absolute paths, not bare "pkexec"/"apt": pkexec resolves the
     # command it's given using its own restricted environment rather
@@ -87,6 +186,21 @@ def test_launch_installer_linux_prefers_pkexec_apt_over_xdg_open():
     # Linux, so quitting can't kill the pkexec password prompt before
     # it's answered.
     assert result is mock_popen.return_value
+
+
+def test_launch_installer_linux_refuses_to_install_a_package_that_fails_its_check():
+    def fake_which(name):
+        return {"pkexec": "/usr/bin/pkexec", "apt": "/usr/bin/apt"}[name]
+
+    with patch("simple_streamer.core.self_update.sys.platform", "linux"), patch(
+        "simple_streamer.core.self_update.shutil.which", side_effect=fake_which
+    ), patch(
+        "simple_streamer.core.self_update.verify_deb", side_effect=UpdateVerificationError("not ours")
+    ), patch("simple_streamer.core.self_update.subprocess.Popen") as mock_popen:
+        with pytest.raises(UpdateVerificationError):
+            launch_installer("/tmp/evil.deb", expected_version="v1.2.3")
+
+    mock_popen.assert_not_called()
 
 
 def test_launch_installer_linux_falls_back_to_xdg_open_without_pkexec_or_apt():

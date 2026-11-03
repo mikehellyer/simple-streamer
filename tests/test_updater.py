@@ -10,7 +10,7 @@ def test_is_newer_detects_a_higher_version():
 
 
 def test_check_for_update_returns_none_when_unreachable():
-    with patch("urllib.request.urlopen", side_effect=OSError("network down")):
+    with patch("simple_streamer.core.http._OPENER.open", side_effect=OSError("network down")):
         assert check_for_update("0.1.0", "owner", "repo") is None
 
 
@@ -22,10 +22,10 @@ def test_check_for_update_returns_none_when_up_to_date():
         def __exit__(self, *exc):
             return False
 
-        def read(self):
+        def read(self, size=-1):
             return b'{"tag_name": "v0.1.0", "html_url": "https://example.com"}'
 
-    with patch("urllib.request.urlopen", return_value=_Response()):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response()):
         assert check_for_update("0.1.0", "owner", "repo") is None
 
 
@@ -37,10 +37,10 @@ def test_check_for_update_returns_info_when_newer():
         def __exit__(self, *exc):
             return False
 
-        def read(self):
+        def read(self, size=-1):
             return b'{"tag_name": "v0.2.0", "html_url": "https://example.com/rel", "body": "notes"}'
 
-    with patch("urllib.request.urlopen", return_value=_Response()):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response()):
         info = check_for_update("0.1.0", "owner", "repo")
 
     assert info is not None
@@ -56,7 +56,7 @@ def test_check_for_update_captures_release_assets():
         def __exit__(self, *exc):
             return False
 
-        def read(self):
+        def read(self, size=-1):
             return (
                 b'{"tag_name": "v0.2.0", "html_url": "https://example.com/rel", '
                 b'"assets": ['
@@ -65,7 +65,7 @@ def test_check_for_update_captures_release_assets():
                 b"]}"
             )
 
-    with patch("urllib.request.urlopen", return_value=_Response()):
+    with patch("simple_streamer.core.http._OPENER.open", return_value=_Response()):
         info = check_for_update("0.1.0", "owner", "repo")
 
     assert info is not None
