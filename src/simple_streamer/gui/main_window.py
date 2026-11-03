@@ -101,6 +101,14 @@ class MainWindow(QMainWindow):
         self._audio_buffer_output.audioBufferReceived.connect(self._visualizer.feed_buffer)
 
         self._tabs = QTabWidget()
+        # Radio and Podcasts tabs share the full width (left and right
+        # halves) with bold labels. Expanding tabs only fill the width in
+        # document mode — otherwise the bar stays as wide as its labels.
+        self._tabs.setDocumentMode(True)
+        self._tabs.tabBar().setExpanding(True)
+        tab_font = self._tabs.tabBar().font()
+        tab_font.setBold(True)
+        self._tabs.tabBar().setFont(tab_font)
         self._decks: dict[str, PresetDeckWidget] = {}
         for category, title in (("radio", "Radio"), ("podcasts", "Podcasts")):
             deck = PresetDeckWidget(category, self._store, self._run_in_background, self._episode_progress)
