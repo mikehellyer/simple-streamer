@@ -92,6 +92,11 @@ class PlayerBar(QFrame):
             "#playerBar { border: 1px solid rgba(0, 0, 0, 0.22); border-radius: 8px; }"
         )
 
+        # Only ever as tall as its contents: spare window height belongs to
+        # the preset grid, not to gaps in here (the centring stretches
+        # beside the artwork would otherwise soak it up).
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(12, 10, 12, 10)
         outer.setSpacing(6)
@@ -108,8 +113,13 @@ class PlayerBar(QFrame):
         self._artwork.setFixedSize(self.ARTWORK_SIZE, self.ARTWORK_SIZE)
         self._artwork.setAlignment(Qt.AlignCenter)
         top.addWidget(self._artwork)
+        # Title (plus, for podcasts, the progress bar) centred vertically on
+        # the artwork. The artwork is the taller of the two, so it sets the
+        # row's height and the progress bar can come and go without
+        # moving anything else.
         text_rows = QVBoxLayout()
         text_rows.setSpacing(6)
+        text_rows.addStretch(1)
         top.addLayout(text_rows, stretch=1)
         # Schedule switch top right, centred vertically on the artwork.
         self._schedule_button = QPushButton()
@@ -139,9 +149,7 @@ class PlayerBar(QFrame):
         self._progress_time_label.setStyleSheet("color: gray; font-size: 11px;")
         progress_row.addWidget(self._progress_time_label)
         text_rows.addLayout(progress_row)
-        # Only shown for podcasts — but always taking its space.
-        retain_space_when_hidden(self._progress_slider)
-        retain_space_when_hidden(self._progress_time_label)
+        text_rows.addStretch(1)
 
         # Buttons centered on their own row below the progress bar,
         # rather than sharing space with the title.
@@ -273,6 +281,10 @@ class PlayerBar(QFrame):
             self._rewind_button.setEnabled(False)
             self._forward_button.setEnabled(False)
             self.set_progress(0, 0)
+            # Nothing to show progress for — and hiding it lets "Nothing
+            # playing" centre on the artwork square like a radio title.
+            self._progress_slider.hide()
+            self._progress_time_label.hide()
 
     def set_seekable(self, seekable: bool) -> None:
         """Rewind/fast-forward, and the progress/seek bar, only make
