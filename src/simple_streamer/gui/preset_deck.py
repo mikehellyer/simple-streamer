@@ -216,7 +216,9 @@ class PresetDeckWidget(QWidget):
             # QPushButton always puts its icon to the left of the text,
             # with no built-in way to stack them instead.
             button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-            button.setMinimumHeight(88)
+            # Short enough to leave the window some slack (see MainWindow's
+            # initial size) while still fitting a 48px logo and its label.
+            button.setMinimumHeight(74)
             # Ignored (not Expanding) so a long label like "BBC Radio 5 Live
             # Sports Extra" doesn't inflate this button's own size hint and
             # drag its whole column wider than the others — column width

@@ -52,6 +52,9 @@ from simple_streamer.gui.schedule_editor import ScheduleDialog
 
 PROGRESS_SAVE_INTERVAL_MS = 10_000
 SCHEDULE_TICK_MS = 10_000
+# The schedule's status-bar note is shortened with "…" past this width,
+# so a long note can't stretch the window.
+SCHEDULE_LABEL_MAX_WIDTH = 620
 
 UPDATE_OWNER = "mikehellyer"
 UPDATE_REPO = "simple-streamer"
@@ -237,6 +240,12 @@ class MainWindow(QMainWindow):
         self._schedule_timer = QTimer(self)
         self._schedule_timer.timeout.connect(self._schedule_tick)
 
+        # Open with enough spare height for the update banner, so it can
+        # appear later without the window having to grow to fit it (the
+        # preset grid gives up the space instead).
+        spare = self._update_banner.sizeHint().height() + 8
+        self.resize(self.width(), max(self.height(), self.minimumSizeHint().height() + spare))
+
         self._check_for_updates()
 
     def _current_deck(self) -> PresetDeckWidget:
@@ -315,6 +324,7 @@ class MainWindow(QMainWindow):
             self._player.setSource(QUrl())
         self._player.setSource(QUrl(url))
         self._player.play()
+        self._player_bar.set_artwork(self._store.slot(category, self._active_number).image_path)
         self._player_bar.set_now_playing(f"Tuning in: {label}…")
         self._player_bar.set_active(True)
         # A podcast episode is an on-demand file — fully seekable. A radio
@@ -381,6 +391,7 @@ class MainWindow(QMainWindow):
             self._player_bar.set_website("")
             self._player_bar.set_active(False)
             self._player_bar.set_episodes_available(False)
+            self._player_bar.set_artwork("")
         self._active_number = None
         self._current_episode_audio_url = None
 
@@ -614,6 +625,8 @@ class MainWindow(QMainWindow):
         # follow it, so stop/now-playing/episodes still point at it.
         if category == self._active_category and self._active_number in renumbered:
             self._active_number = renumbered[self._active_number]
+            # Its logo file is renamed to match its new slot number.
+            self._player_bar.set_artwork(self._store.slot(category, self._active_number).image_path)
 
     def _on_schedule_toggled(self, on: bool) -> None:
         self._schedule_on = on
@@ -711,7 +724,10 @@ class MainWindow(QMainWindow):
             when, next_item = upcoming
             day = "" if when.date() == now.date() else when.strftime("%a ")
             text += f" · next: {day}{when:%H:%M} {next_item.label}"
-        self._schedule_label.setText(text)
+        self._schedule_label.setToolTip(text)
+        self._schedule_label.setText(
+            self._schedule_label.fontMetrics().elidedText(text, Qt.ElideRight, SCHEDULE_LABEL_MAX_WIDTH)
+        )
         self._schedule_label.show()
 
     def _edit_schedule(self) -> None:

@@ -9,13 +9,14 @@ box so it reads as a separate element from the tabs below it.
 from __future__ import annotations
 
 from PySide6.QtCore import Signal, Qt, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QSlider,
     QWidget,
 )
@@ -23,6 +24,45 @@ from PySide6.QtWidgets import (
 from simple_streamer.core.browser_raise import try_raise_browser_window
 from simple_streamer.core.text import format_duration_ms
 from simple_streamer.gui.loading_indicator import LoadingIndicator
+
+
+def retain_space_when_hidden(widget: QWidget) -> None:
+    """Keep a widget's space in the layout while it's hidden, so showing
+    or hiding it never shifts everything else — or resizes the window.
+    """
+    policy = widget.sizePolicy()
+    policy.setRetainSizeWhenHidden(True)
+    widget.setSizePolicy(policy)
+
+
+class ElidedLabel(QLabel):
+    """A one-line label that shortens its text with "…" to fit, instead of
+    demanding enough width for all of it. A plain QLabel's minimum width is
+    its whole text, so a long song or episode title would stretch the
+    window. The full text is in the tooltip.
+    """
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(parent)
+        self._full_text = ""
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setText(text)
+
+    def setText(self, text: str) -> None:
+        self._full_text = text
+        self.setToolTip(text)
+        self._elide()
+
+    def full_text(self) -> str:
+        return self._full_text
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self) -> None:
+        elided = self.fontMetrics().elidedText(self._full_text, Qt.ElideRight, max(self.width(), 0))
+        super().setText(elided)
 
 
 class PlayerBar(QFrame):
@@ -39,6 +79,7 @@ class PlayerBar(QFrame):
     SCHEDULE_ON_COLOURS = ("#2e7d32", "#1b5e20")
     SCHEDULE_OFF_COLOURS = ("#c62828", "#8e0000")
     VOLUME_BOX_WIDTH = 190
+    ARTWORK_SIZE = 56
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -59,11 +100,24 @@ class PlayerBar(QFrame):
         # buttons let a long episode title push/squeeze them (sometimes
         # off the edge of the window entirely) since they had to split
         # the same horizontal space.
+        # Artwork to the left of the title and progress rows. Its square is
+        # always reserved, picture or not, so it never shifts the layout.
+        top = QHBoxLayout()
+        top.setSpacing(10)
+        self._artwork = QLabel()
+        self._artwork.setFixedSize(self.ARTWORK_SIZE, self.ARTWORK_SIZE)
+        self._artwork.setAlignment(Qt.AlignCenter)
+        top.addWidget(self._artwork)
+        text_rows = QVBoxLayout()
+        text_rows.setSpacing(6)
+        top.addLayout(text_rows, stretch=1)
+        outer.addLayout(top)
+
         title_row = QHBoxLayout()
-        self._now_playing = QLabel("Nothing playing")
+        self._now_playing = ElidedLabel("Nothing playing")
         self._now_playing.setStyleSheet("font-size: 16px; font-weight: 600;")
         title_row.addWidget(self._now_playing, stretch=1)
-        outer.addLayout(title_row)
+        text_rows.addLayout(title_row)
 
         progress_row = QHBoxLayout()
         self._is_scrubbing = False
@@ -75,7 +129,10 @@ class PlayerBar(QFrame):
         self._progress_time_label = QLabel("")
         self._progress_time_label.setStyleSheet("color: gray; font-size: 11px;")
         progress_row.addWidget(self._progress_time_label)
-        outer.addLayout(progress_row)
+        text_rows.addLayout(progress_row)
+        # Only shown for podcasts — but always taking its space.
+        retain_space_when_hidden(self._progress_slider)
+        retain_space_when_hidden(self._progress_time_label)
 
         # Buttons centered on their own row below the progress bar,
         # rather than sharing space with the title.
@@ -148,6 +205,7 @@ class PlayerBar(QFrame):
         self.set_active(False)
 
         self._progress = LoadingIndicator()
+        retain_space_when_hidden(self._progress)
         outer.addWidget(self._progress)
 
     def set_schedule_on(self, on: bool) -> None:
@@ -183,6 +241,16 @@ class PlayerBar(QFrame):
 
     def set_now_playing(self, text: str) -> None:
         self._now_playing.setText(text)
+
+    def set_artwork(self, image_path: str) -> None:
+        """Show the playing preset's logo/artwork, or nothing for ""."""
+        pixmap = QPixmap(image_path) if image_path else QPixmap()
+        if pixmap.isNull():
+            self._artwork.clear()
+            return
+        self._artwork.setPixmap(
+            pixmap.scaled(self.ARTWORK_SIZE, self.ARTWORK_SIZE, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
 
     def set_loading(self, loading: bool) -> None:
         self._progress.set_loading(loading)
